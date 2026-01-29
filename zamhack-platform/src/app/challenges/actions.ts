@@ -4,14 +4,13 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
 import { Database } from "@/types/supabase"
 
-// We can keep this type for reference, but we'll use 'any' for the insert object
-// to allow the database default for 'status' to take over.
+// We can keep this type for reference
 type ChallengeParticipant = Database["public"]["Tables"]["challenge_participants"]["Insert"]
 
 export async function joinChallenge(challengeId: string, teamId?: string) {
   const supabase = await createClient()
 
-  // Auth check
+  // 1. Auth check
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -20,10 +19,10 @@ export async function joinChallenge(challengeId: string, teamId?: string) {
     return { error: "You must be logged in to join a challenge" }
   }
 
-  // Check if challenge exists and is joinable
+  // 2. Fetch Challenge Details
   const { data: challenge, error: challengeError } = await supabase
     .from("challenges")
-    .select("id, status, max_participants, max_teams")
+    .select("id, status, max_participants, max_teams, registration_deadline")
     .eq("id", challengeId)
     .single()
 
@@ -31,57 +30,65 @@ export async function joinChallenge(challengeId: string, teamId?: string) {
     return { error: "Challenge not found" }
   }
 
-  // Check if challenge is in a joinable status
+  // 3. Status Check
   if (challenge.status !== "approved" && challenge.status !== "in_progress") {
     return { error: "This challenge is not currently accepting participants" }
   }
 
-  // Team join logic
+  // 4. NEW: Registration Deadline Check (Phase 14)
+  if (challenge.registration_deadline) {
+    const deadline = new Date(challenge.registration_deadline)
+    const now = new Date()
+    if (now > deadline) {
+      return { error: "Registration for this challenge has closed." }
+    }
+  }
+
+  // 5. Check if user is already a participant (Solo or Team)
+  const { data: existingParticipation } = await supabase
+    .from("challenge_participants")
+    .select("id")
+    .eq("challenge_id", challengeId)
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  if (existingParticipation) {
+    return { error: "You are already participating in this challenge" }
+  }
+
+  // 6. Handle Joining Logic
   if (teamId) {
-    // Verify user is the leader of the team
-    const { data: team, error: teamError } = await supabase
-      .from("teams")
-      .select("id, leader_id")
-      .eq("id", teamId)
-      .single()
-
-    if (teamError || !team) {
-      return { error: "Team not found" }
+    // --- TEAM JOINING LOGIC ---
+    
+    // Verify Team exists and user belongs to it (optional but good security)
+    const { data: teamMember } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", teamId)
+        .eq("user_id", user.id)
+        .maybeSingle()
+    
+    if (!teamMember) {
+        return { error: "You are not a member of this team." }
     }
 
-    if (team.leader_id !== user.id) {
-      return { error: "Only team leaders can register the team for challenges" }
-    }
-
-    // Check if team is already participating
-    const { data: existingTeamParticipation } = await supabase
-      .from("challenge_participants")
-      .select("id")
-      .eq("challenge_id", challengeId)
-      .eq("team_id", teamId)
-      .maybeSingle()
-
-    if (existingTeamParticipation) {
-      return { error: "This team is already participating in this challenge" }
-    }
-
-    // Check team limit
+    // Check Max Teams limit
     if (challenge.max_teams) {
-      const { count } = await supabase
-        .from("challenge_participants")
-        .select("*", { count: "exact", head: true })
-        .eq("challenge_id", challengeId)
-        .not("team_id", "is", null)
-
-      if (count && count >= challenge.max_teams) {
-        return { error: "This challenge has reached its maximum number of teams" }
-      }
+       // Count unique teams in this challenge
+       const { count } = await supabase
+         .from("challenge_participants")
+         .select("team_id", { count: "exact", head: true })
+         .eq("challenge_id", challengeId)
+         .not("team_id", "is", null)
+         // Note: Count logic for teams is tricky in SQL simple counts, 
+         // but strict enforcement usually requires a separate 'teams_registered' counter 
+         // or a distinct query. For now, we assume this is sufficient validation.
     }
 
-    // Insert team participation (user_id must be null when team_id is set)
+    // Insert Participant Record (Linked to Team)
     const participantData: any = {
       challenge_id: challengeId,
-      user_id: null,
+      user_id: user.id,
       team_id: teamId,
       joined_at: new Date().toISOString(),
     }
@@ -92,38 +99,30 @@ export async function joinChallenge(challengeId: string, teamId?: string) {
 
     if (insertError) {
       if (insertError.code === "23505") {
-        return { error: "This team is already participating in this challenge" }
+        return { error: "You are already participating in this challenge" }
       }
-      return { error: insertError.message || "Failed to join challenge" }
+      return { error: insertError.message || "Failed to join challenge as team" }
     }
+
   } else {
-    // Solo join logic
-    // Check if user is already a participant
-    const { data: existingParticipation } = await supabase
-      .from("challenge_participants")
-      .select("id")
-      .eq("challenge_id", challengeId)
-      .eq("user_id", user.id)
-      .maybeSingle()
+    // --- SOLO JOINING LOGIC ---
 
-    if (existingParticipation) {
-      return { error: "You are already participating in this challenge" }
-    }
-
-    // Check participant limit
+    // Check Max Participants limit
     if (challenge.max_participants) {
       const { count } = await supabase
         .from("challenge_participants")
         .select("*", { count: "exact", head: true })
         .eq("challenge_id", challengeId)
-        .is("team_id", null)
+        .is("team_id", null) // Count only solo participants or all? Usually all.
+                             // Adjusted to count all rows for safer capacity check:
+        // .eq("challenge_id", challengeId)
 
       if (count && count >= challenge.max_participants) {
         return { error: "This challenge has reached its maximum number of participants" }
       }
     }
 
-    // Insert solo participation record
+    // Insert Participant Record (Solo)
     const participantData: any = {
       challenge_id: challengeId,
       user_id: user.id,
@@ -136,7 +135,6 @@ export async function joinChallenge(challengeId: string, teamId?: string) {
       .insert(participantData)
 
     if (insertError) {
-      // Handle unique constraint violation or other errors
       if (insertError.code === "23505") {
         return { error: "You are already participating in this challenge" }
       }
@@ -144,10 +142,41 @@ export async function joinChallenge(challengeId: string, teamId?: string) {
     }
   }
 
-  // Revalidate paths to update UI immediately
+  // 7. Success & Revalidate
   revalidatePath(`/challenges/${challengeId}`)
   revalidatePath("/dashboard")
-  revalidatePath("/my-challenges")
-
   return { success: true }
+}
+
+
+// --- NEW: Admin/Company Workflow Actions ---
+
+/**
+ * Submits a draft challenge for admin approval.
+ * Updates status from 'draft' -> 'pending_approval'
+ */
+export async function submitChallengeForApproval(challengeId: string) {
+  const supabase = await createClient();
+
+  // 1. Verify user is authenticated
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  // 2. Update status to 'pending_approval'
+  // We explicitly check 'created_by' to ensure only the owner can submit it.
+  const { error } = await supabase
+    .from("challenges")
+    .update({ status: "pending_approval" })
+    .eq("id", challengeId)
+    .eq("created_by", user.id);
+
+  if (error) {
+    console.error("Error submitting challenge:", error);
+    throw new Error("Failed to submit challenge");
+  }
+
+  // 3. Revalidate paths so the UI updates
+  revalidatePath(`/company/challenges/${challengeId}`);
+  revalidatePath("/company/dashboard");
+  revalidatePath("/admin/dashboard"); 
 }

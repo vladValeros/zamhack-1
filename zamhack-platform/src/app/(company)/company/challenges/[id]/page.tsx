@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress"
 import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
 import Link from "next/link"
+// --- NEW IMPORT ---
+import { submitChallengeForApproval } from "@/app/challenges/actions"
 
 type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
 type Participant = Database["public"]["Tables"]["challenge_participants"]["Row"]
@@ -167,7 +169,6 @@ async function getChallengeManagementData(
       .eq("is_draft", false)
 
     if (!evaluationsError && evaluations) {
-      // FIX: Filter out null submission_ids and cast to string to fix TypeScript red line
       evaluationsMap = new Map(
         evaluations
           .filter((e) => e.submission_id !== null)
@@ -209,7 +210,6 @@ async function getChallengeManagementData(
   )
   const scores = evaluatedSubmissions
     .map((s) => {
-      // FIX: Renamed variable to avoid 'eval' keyword
       const evaluationItem = evaluationsMap.get(s.id)
       return evaluationItem?.score ?? null
     })
@@ -320,6 +320,9 @@ export default async function ChallengeManagementPage({
   const { challenge, participants, submissions, stats, milestoneProgress } =
     data
 
+  // --- NEW LOGIC: Check Status ---
+  const isDraft = challenge.status === "draft"
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -334,9 +337,26 @@ export default async function ChallengeManagementPage({
           <p className="text-muted-foreground">{challenge.description}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled>
-            Edit Challenge
+          
+           {/* --- NEW BUTTON: Submit for Approval --- */}
+           {isDraft && (
+            <form
+              action={async () => {
+                "use server"
+                await submitChallengeForApproval(challenge.id)
+              }}
+            >
+              <Button type="submit" className="bg-green-600 hover:bg-green-700 text-white">
+                Submit for Approval
+              </Button>
+            </form>
+          )}
+
+          {/* UPDATED: Functional Edit Link (Was disabled in your file) */}
+          <Button variant="outline" asChild>
+            <Link href={`/company/challenges/${id}/edit`}>Edit Challenge</Link>
           </Button>
+          
           <Button variant="outline" disabled>
             Close Challenge
           </Button>
@@ -596,12 +616,5 @@ export default async function ChallengeManagementPage({
     </div>
   )
 }
-
-
-
-
-
-
-
 
 

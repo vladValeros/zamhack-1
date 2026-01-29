@@ -17,6 +17,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { createChallenge } from "@/app/challenges/create-actions"
 import { toast } from "sonner"
@@ -43,6 +44,9 @@ const formSchema = z.object({
   maxParticipants: z.union([z.string(), z.number()]).optional(),
   maxTeams: z.union([z.string(), z.number()]).optional(),
   maxTeamSize: z.union([z.string(), z.number()]).optional(),
+  requiresEntryFee: z.boolean().default(false),
+  entryFeeAmount: z.union([z.string(), z.number()]).optional(),
+  currency: z.string().default("PHP"),
   
   // Step 2: Timeline
   startDate: z.date({ required_error: "Start date is required" }),
@@ -61,6 +65,7 @@ type FormValues = z.infer<typeof formSchema>
 const INDUSTRIES = ["Technology", "Finance", "Healthcare", "Education", "E-commerce", "Other"]
 const DIFFICULTIES = ["beginner", "intermediate", "advanced"]
 const TYPES = ["solo", "team", "both"]
+const CURRENCIES = ["PHP", "USD", "EUR", "GBP"]
 
 const STEPS = ["Basic Info", "Timeline", "Milestones", "Skills", "Review"]
 
@@ -77,6 +82,8 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
       difficulty: "beginner",
       milestones: [{ title: "Final Submission", requiresGithub: true, requiresUrl: true, requiresText: true }],
       skills: [],
+      requiresEntryFee: false,
+      currency: "PHP",
     },
     mode: "onChange", 
   })
@@ -95,6 +102,14 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
     switch (step) {
       case 1:
         fieldsToValidate = ["title", "description", "industry", "difficulty", "participationType"]
+        // Validate entry fee if required
+        if (form.getValues("requiresEntryFee")) {
+          const entryFee = form.getValues("entryFeeAmount")
+          if (!entryFee || Number(entryFee) <= 0) {
+            form.setError("entryFeeAmount", { message: "Entry fee amount is required and must be greater than 0" })
+            return false
+          }
+        }
         break
       case 2:
         fieldsToValidate = ["startDate", "endDate"]
@@ -219,6 +234,8 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
         maxParticipants: data.maxParticipants ? Number(data.maxParticipants) : undefined,
         maxTeams: data.maxTeams ? Number(data.maxTeams) : undefined,
         maxTeamSize: data.maxTeamSize ? Number(data.maxTeamSize) : undefined,
+        entryFeeAmount: data.requiresEntryFee && data.entryFeeAmount ? Number(data.entryFeeAmount) : undefined,
+        currency: data.requiresEntryFee ? (data.currency || "PHP") : undefined,
         milestones: data.milestones.map(m => ({
             ...m,
             dueDate: m.dueDate.toISOString()
@@ -364,6 +381,60 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
                                 <Input type="number" {...form.register("maxTeamSize")} placeholder="4" />
                             </div>
                         </>
+                    )}
+                </div>
+
+                <div className="space-y-4 pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                            <Label htmlFor="requiresEntryFee">Requires Entry Fee?</Label>
+                            <p className="text-sm text-muted-foreground">Charge participants to join this challenge</p>
+                        </div>
+                        <Switch
+                            id="requiresEntryFee"
+                            checked={watchedValues.requiresEntryFee || false}
+                            onCheckedChange={(checked) => {
+                                form.setValue("requiresEntryFee", checked)
+                                if (!checked) {
+                                    form.setValue("entryFeeAmount", undefined)
+                                }
+                            }}
+                        />
+                    </div>
+                    {watchedValues.requiresEntryFee && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Entry Fee Amount</Label>
+                                <Input 
+                                    type="number" 
+                                    {...form.register("entryFeeAmount")} 
+                                    placeholder="0.00"
+                                    step="0.01"
+                                    min="0"
+                                />
+                                {form.formState.errors.entryFeeAmount && (
+                                    <p className="text-xs text-destructive">
+                                        {form.formState.errors.entryFeeAmount.message}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Currency</Label>
+                                <Select 
+                                    onValueChange={(val) => form.setValue("currency", val)} 
+                                    defaultValue={watchedValues.currency || "PHP"}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select currency" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {CURRENCIES.map(currency => (
+                                            <SelectItem key={currency} value={currency}>{currency}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
                     )}
                 </div>
               </div>
@@ -571,6 +642,14 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
                         <div>
                             <h3 className="font-semibold text-muted-foreground text-sm">Timeline</h3>
                             <p>{format(watchedValues.startDate, "PP")} - {format(watchedValues.endDate, "PP")}</p>
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-muted-foreground text-sm">Entry Fee</h3>
+                            <p>
+                                {watchedValues.requiresEntryFee && watchedValues.entryFeeAmount
+                                    ? `${watchedValues.currency || "PHP"} ${Number(watchedValues.entryFeeAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                    : "Free"}
+                            </p>
                         </div>
                         <div>
                             <h3 className="font-semibold text-muted-foreground text-sm">Milestones</h3>
