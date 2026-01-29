@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
 
+// ==========================================
+// ORGANIZATION ACTIONS (Existing)
+// ==========================================
+
 export async function approveOrganization(orgId: string) {
   const supabase = await createClient()
 
@@ -91,3 +95,70 @@ export async function rejectOrganization(orgId: string) {
 
   return { success: true }
 }
+
+// ==========================================
+// CHALLENGE ACTIONS (New)
+// ==========================================
+
+/**
+ * Approve a challenge (pending -> approved)
+ */
+export async function approveChallenge(challengeId: string) {
+  const supabase = await createClient()
+
+  // 1. Verify Admin
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Unauthorized")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single()
+
+  if (profile?.role !== "admin") throw new Error("Unauthorized")
+
+  // 2. Update Status
+  const { error } = await supabase
+    .from("challenges")
+    .update({ status: "approved" }) // 'approved' means it is live
+    .eq("id", challengeId)
+
+  if (error) throw new Error("Failed to approve challenge")
+
+  revalidatePath("/admin/dashboard")
+  revalidatePath(`/admin/challenges/${challengeId}`)
+}
+
+/**
+ * Reject a challenge (pending -> draft)
+ * Sends it back to 'draft' so the company can fix issues.
+ */
+export async function rejectChallenge(challengeId: string) {
+  const supabase = await createClient()
+
+  // 1. Verify Admin
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Unauthorized")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single()
+
+  if (profile?.role !== "admin") throw new Error("Unauthorized")
+
+  // 2. Update Status back to draft
+  const { error } = await supabase
+    .from("challenges")
+    .update({ status: "draft" }) 
+    .eq("id", challengeId)
+
+  if (error) throw new Error("Failed to reject challenge")
+
+  revalidatePath("/admin/dashboard")
+  revalidatePath(`/admin/challenges/${challengeId}`)
+}
+
+

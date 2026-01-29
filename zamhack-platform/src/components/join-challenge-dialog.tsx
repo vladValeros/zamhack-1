@@ -25,12 +25,14 @@ interface JoinChallengeDialogProps {
   challengeId: string
   userTeam: UserTeam | null
   userId: string
+  registrationClosed?: boolean
 }
 
 export const JoinChallengeDialog = ({
   challengeId,
   userTeam,
   userId,
+  registrationClosed = false,
 }: JoinChallengeDialogProps) => {
   const [isLoading, setIsLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
@@ -79,9 +81,9 @@ export const JoinChallengeDialog = ({
         <Button
           className="w-full"
           onClick={() => handleJoin()}
-          disabled={isLoading}
+          disabled={isLoading || registrationClosed}
         >
-          {isLoading ? "Joining..." : "Join Challenge"}
+          {isLoading ? "Joining..." : registrationClosed ? "Registration Closed" : "Join Challenge"}
         </Button>
 
         {toast && (
@@ -107,7 +109,9 @@ export const JoinChallengeDialog = ({
     <div className="relative">
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button className="w-full">Join Challenge</Button>
+          <Button className="w-full" disabled={registrationClosed}>
+            {registrationClosed ? "Registration Closed" : "Join Challenge"}
+          </Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
@@ -120,8 +124,12 @@ export const JoinChallengeDialog = ({
           <div className="space-y-4 py-4">
             {/* Solo Option */}
             <Card
-              className="cursor-pointer hover:bg-accent transition-colors"
-              onClick={() => !isLoading && handleJoin()}
+              className={`transition-colors ${
+                registrationClosed || isLoading
+                  ? "opacity-60 cursor-not-allowed"
+                  : "cursor-pointer hover:bg-accent"
+              }`}
+              onClick={() => !isLoading && !registrationClosed && handleJoin()}
             >
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -139,11 +147,11 @@ export const JoinChallengeDialog = ({
             {/* Team Option */}
             <Card
               className={`transition-colors ${
-                isLeader
+                isLeader && !registrationClosed && !isLoading
                   ? "cursor-pointer hover:bg-accent"
                   : "opacity-60 cursor-not-allowed"
               }`}
-              onClick={() => isLeader && !isLoading && handleJoin(userTeam.id)}
+              onClick={() => isLeader && !isLoading && !registrationClosed && handleJoin(userTeam.id)}
             >
               <CardHeader>
                 <div className="flex items-center gap-3">

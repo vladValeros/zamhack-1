@@ -31,6 +31,8 @@ interface CreateChallengeInput {
   milestones: MilestoneInput[]
   skills: string[]
   organizationId: string
+  entryFeeAmount?: number
+  currency?: string
 }
 
 export const createChallenge = async (
@@ -113,6 +115,8 @@ export const createChallenge = async (
       organization_id: input.organizationId,
       created_by: user.id,
       status: "draft" as ChallengeStatus,
+      entry_fee_amount: input.entryFeeAmount ?? null,
+      currency: input.currency ?? null,
     }
 
     const { data: challenge, error: challengeError } = await supabase

@@ -1,8 +1,10 @@
 import { createClient } from "@/utils/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import {
   Table,
   TableBody,
@@ -16,9 +18,11 @@ import { Users, Building2, Trophy } from "lucide-react"
 
 type Organization = Database["public"]["Tables"]["organizations"]["Row"]
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
+type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
 
 interface DashboardData {
   pendingOrgs: Organization[]
+  pendingChallenges: any[] // Using any here to handle the joined data easily
   stats: {
     totalUsers: number
     totalOrganizations: number
@@ -51,14 +55,31 @@ async function getAdminDashboardData(): Promise<DashboardData> {
     redirect("/dashboard")
   }
 
-  // Fetch pending organizations (Using 'status' column)
+  // 1. Fetch pending organizations
   const { data: pendingOrgs } = await supabase
     .from("organizations")
     .select("*")
-    .eq("status", "pending") 
+    .eq("status", "pending")
     .order("created_at", { ascending: false })
 
-  // Fetch stats counts
+  // 2. Fetch pending challenges
+  // UPDATED: Removed alias to be safer. We access it via 'organizations.name' later.
+  const { data: pendingChallenges, error: challengeError } = await supabase
+    .from("challenges")
+    .select(`
+      *,
+      organizations (
+        name
+      )
+    `)
+    .eq("status", "pending_approval")
+    .order("created_at", { ascending: false })
+  
+  if (challengeError) {
+    console.error("Error fetching pending challenges:", challengeError)
+  }
+
+  // 3. Fetch stats counts
   const { count: userCount } = await supabase
     .from("profiles")
     .select("*", { count: "exact", head: true })
@@ -71,18 +92,16 @@ async function getAdminDashboardData(): Promise<DashboardData> {
     .from("challenges")
     .select("*", { count: "exact", head: true })
 
-  // Fetch recent users
+  // 4. Fetch recent users
   const { data: recentProfiles } = await supabase
     .from("profiles")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(10)
 
-  // Note: We can't join auth.users easily here to get emails without an Admin RPC function.
-  // For now, we will return profiles.
-  
   return {
     pendingOrgs: pendingOrgs || [],
+    pendingChallenges: pendingChallenges || [],
     stats: {
       totalUsers: userCount || 0,
       totalOrganizations: orgCount || 0,
@@ -100,11 +119,16 @@ const formatDate = (dateString: string | null) => {
 
 const getRoleBadgeVariant = (role: string | null) => {
   switch (role) {
-    case "admin": return "destructive"
-    case "company_admin": return "default"
-    case "company_member": return "secondary"
-    case "student": return "outline"
-    default: return "outline"
+    case "admin":
+      return "destructive"
+    case "company_admin":
+      return "default"
+    case "company_member":
+      return "secondary"
+    case "student":
+      return "outline"
+    default:
+      return "outline"
   }
 }
 
@@ -113,7 +137,7 @@ const getUserName = (user: Profile) => {
 }
 
 export default async function AdminDashboardPage() {
-  const { pendingOrgs, stats, recentUsers } = await getAdminDashboardData()
+  const { pendingOrgs, pendingChallenges, stats, recentUsers } = await getAdminDashboardData()
 
   return (
     <div className="space-y-6 p-6">
@@ -159,44 +183,99 @@ export default async function AdminDashboardPage() {
         </Card>
       </div>
 
-      {/* Section 1: Pending Approvals */}
-      <div className="space-y-4">
-        <h2 className="text-2xl font-semibold">Pending Organizations</h2>
-        {pendingOrgs.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <p>No pending approvals.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Organization Name</TableHead>
-                  <TableHead>Industry</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingOrgs.map((org) => (
-                  <TableRow key={org.id}>
-                    <TableCell className="font-medium">{org.name}</TableCell>
-                    <TableCell>{org.industry || "N/A"}</TableCell>
-                    <TableCell>{formatDate(org.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <OrgApprovalActions orgId={org.id} />
-                    </TableCell>
+      <div className="grid lg:grid-cols-2 gap-6">
+        
+        {/* Section 1: Pending Organizations */}
+        <div className="space-y-4">
+          <h2 className="text-2xl font-semibold flex items-center gap-2">
+             Pending Organizations
+             {pendingOrgs.length > 0 && <Badge>{pendingOrgs.length}</Badge>}
+          </h2>
+          {pendingOrgs.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <p>No pending organization approvals.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Organization</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-        )}
+                </TableHeader>
+                <TableBody>
+                  {pendingOrgs.map((org) => (
+                    <TableRow key={org.id}>
+                      <TableCell>
+                        <div className="font-medium">{org.name}</div>
+                        <div className="text-xs text-muted-foreground">{org.industry || "N/A"}</div>
+                      </TableCell>
+                      <TableCell>{formatDate(org.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <OrgApprovalActions orgId={org.id} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
+
+        {/* Section 2: Pending Challenges */}
+        <div className="space-y-4">
+          <h2 className="text-2xl font-semibold flex items-center gap-2">
+             Pending Challenges
+             {pendingChallenges.length > 0 && <Badge variant="secondary">{pendingChallenges.length}</Badge>}
+          </h2>
+          {pendingChallenges.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <p>No pending challenge approvals.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Challenge Title</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingChallenges.map((challenge) => (
+                    <TableRow key={challenge.id}>
+                      <TableCell>
+                        <div className="font-medium">{challenge.title}</div>
+                        <div className="text-xs text-muted-foreground">
+                           {/* Updated accessor based on new query */}
+                           {challenge.organizations?.name || "Unknown Org"}
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatDate(challenge.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="outline" asChild>
+                          <Link href={`/admin/challenges/${challenge.id}`}>
+                            Review
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
       </div>
 
-      {/* Section 2: Recent Users */}
+      {/* Section 3: Recent Users */}
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold">Recent Users</h2>
         {recentUsers.length === 0 ? (

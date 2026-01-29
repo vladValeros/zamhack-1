@@ -7,9 +7,10 @@ import { joinChallenge } from "@/app/challenges/actions"
 
 interface JoinButtonProps {
   challengeId: string
+  registrationClosed?: boolean
 }
 
-export const JoinButton = ({ challengeId }: JoinButtonProps) => {
+export const JoinButton = ({ challengeId, registrationClosed = false }: JoinButtonProps) => {
   const [isLoading, setIsLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null)
   const router = useRouter()
@@ -53,9 +54,9 @@ export const JoinButton = ({ challengeId }: JoinButtonProps) => {
       <Button
         className="w-full"
         onClick={handleJoin}
-        disabled={isLoading}
+        disabled={isLoading || registrationClosed}
       >
-        {isLoading ? "Joining..." : "Join Challenge"}
+        {isLoading ? "Joining..." : registrationClosed ? "Registration Closed" : "Join Challenge"}
       </Button>
       
       {toast && (
