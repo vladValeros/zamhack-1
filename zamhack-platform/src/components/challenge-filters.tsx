@@ -1,9 +1,9 @@
 "use client"
 
-import { useRouter, useSearchParams } from "next/navigation"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useCallback, useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -11,114 +11,121 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Search, Filter, X } from "lucide-react"
 
-export const ChallengeFilters = () => {
-  const router = useRouter()
+export function ChallengeFilters() {
   const searchParams = useSearchParams()
-  
-  // Local state for immediate UI feedback
-  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "")
-  
-  // Debounce the search URL update
+  const pathname = usePathname()
+  const { replace } = useRouter()
+
+  // Local state
+  const [query, setQuery] = useState(searchParams.get("q") || "")
+  const [category, setCategory] = useState(searchParams.get("category") || "all")
+  const [sort, setSort] = useState(searchParams.get("sort") || "newest")
+
+  // Debounced URL updater for Search Text
   useEffect(() => {
     const timer = setTimeout(() => {
-      updateURL({ q: searchQuery })
-    }, 500) // 500ms delay
+      const params = new URLSearchParams(searchParams)
+      if (query) {
+        params.set("q", query)
+      } else {
+        params.delete("q")
+      }
+      replace(`${pathname}?${params.toString()}`)
+    }, 300) // 300ms debounce
 
     return () => clearTimeout(timer)
-  }, [searchQuery])
+  }, [query, pathname, replace, searchParams])
 
-  const updateURL = useCallback(
-    (updates: { q?: string; difficulty?: string; status?: string }) => {
-      const params = new URLSearchParams(searchParams.toString())
-      
-      if (updates.q !== undefined) {
-        updates.q ? params.set("q", updates.q) : params.delete("q")
-      }
-      
-      if (updates.difficulty !== undefined) {
-        updates.difficulty && updates.difficulty !== "all" 
-          ? params.set("difficulty", updates.difficulty) 
-          : params.delete("difficulty")
-      }
-      
-      if (updates.status !== undefined) {
-        updates.status && updates.status !== "all" 
-          ? params.set("status", updates.status) 
-          : params.delete("status")
-      }
-      
-      router.push(`?${params.toString()}`)
-    },
-    [searchParams, router]
-  )
+  // Immediate URL updater for Dropdowns
+  const handleFilterChange = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams)
+    if (value && value !== "all") {
+      params.set(key, value)
+    } else {
+      params.delete(key)
+    }
+    replace(`${pathname}?${params.toString()}`)
+  }
+
+  const handleClear = () => {
+    setQuery("")
+    setCategory("all")
+    setSort("newest")
+    replace(pathname)
+  }
 
   return (
-    <div className="grid gap-4 md:grid-cols-4 rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
-      {/* Search Bar */}
-      <div className="md:col-span-2 space-y-2">
-        <Label htmlFor="search">Search</Label>
-        <Input
-          id="search"
-          placeholder="Search by title or description..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+    <div className="space-y-4 bg-card p-4 rounded-lg border shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+          <Filter className="h-4 w-4" />
+          Filter Challenges
+        </h3>
+        {(query || category !== "all" || sort !== "newest") && (
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={handleClear}
+            className="h-8 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <X className="mr-1 h-3 w-3" />
+            Clear All
+          </Button>
+        )}
       </div>
 
-      {/* Difficulty Filter */}
-      <div className="space-y-2">
-        <Label>Difficulty</Label>
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by title or description..."
+            className="pl-8"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        {/* Category Dropdown (Mapping to Industry in DB) */}
         <Select 
-          defaultValue={searchParams.get("difficulty") || "all"}
-          onValueChange={(val) => updateURL({ difficulty: val })}
+          value={category} 
+          onValueChange={(val) => {
+            setCategory(val)
+            handleFilterChange("category", val)
+          }}
         >
           <SelectTrigger>
-            <SelectValue placeholder="All Levels" />
+            <SelectValue placeholder="Select Category" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Levels</SelectItem>
-            <SelectItem value="beginner">Beginner</SelectItem>
-            <SelectItem value="intermediate">Intermediate</SelectItem>
-            <SelectItem value="advanced">Advanced</SelectItem>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="Technology">Technology & Coding</SelectItem>
+            <SelectItem value="Design">Design & Creative</SelectItem>
+            <SelectItem value="Business">Business & Marketing</SelectItem>
+            <SelectItem value="Social Impact">Social Impact</SelectItem>
           </SelectContent>
         </Select>
-      </div>
 
-      {/* Status Filter */}
-      <div className="space-y-2">
-        <Label>Status</Label>
+        {/* Sort Dropdown */}
         <Select 
-          defaultValue={searchParams.get("status") || "all"}
-          onValueChange={(val) => updateURL({ status: val })}
+          value={sort} 
+          onValueChange={(val) => {
+            setSort(val)
+            handleFilterChange("sort", val)
+          }}
         >
           <SelectTrigger>
-            <SelectValue placeholder="All Statuses" />
+            <SelectValue placeholder="Sort By" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="approved">Open</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="newest">Newest First</SelectItem>
+            <SelectItem value="closing_soon">Closing Soon</SelectItem>
+            <SelectItem value="participants_high">Most Popular</SelectItem>
           </SelectContent>
         </Select>
       </div>
     </div>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

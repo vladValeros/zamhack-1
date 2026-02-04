@@ -14,11 +14,12 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft } from "lucide-react" // ADDED: Icon for the back button
+import { ArrowLeft } from "lucide-react"
 
-// --- FIX: Define the shape first (without refinement) ---
+// --- FIX: Define the base shape with the new optional middleName ---
 const baseSchemaShape = z.object({
   firstName: z.string().min(2, "First name required"),
+  middleName: z.string().optional(), // Added optional middle name
   lastName: z.string().min(2, "Last name required"),
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Password must be at least 6 chars"),
@@ -51,13 +52,13 @@ export default function SignupPage() {
   // Student Form
   const studentForm = useForm<z.infer<typeof studentSchema>>({
     resolver: zodResolver(studentSchema),
-    defaultValues: { role: "student" },
+    defaultValues: { role: "student", middleName: "" },
   })
 
   // Company Form
   const companyForm = useForm<z.infer<typeof companySchema>>({
     resolver: zodResolver(companySchema),
-    defaultValues: { role: "company_admin" },
+    defaultValues: { role: "company_admin", middleName: "" },
   })
 
   // Unified Submit Handler
@@ -68,7 +69,10 @@ export default function SignupPage() {
     try {
       const formData = new FormData()
       Object.entries(data).forEach(([key, value]) => {
-        formData.append(key, value as string)
+        // Only append if value exists (handles optional middleName)
+        if (value !== undefined && value !== null) {
+          formData.append(key, value as string)
+        }
       })
 
       const result = await signup(formData)
@@ -77,8 +81,6 @@ export default function SignupPage() {
         setError(result.error)
       } else if (result?.success) {
         setSuccess(true)
-        // Optional: Redirect immediately or show success message
-        // router.push("/login") 
       }
     } catch (err) {
       setError("Something went wrong.")
@@ -90,7 +92,6 @@ export default function SignupPage() {
   if (success) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-4 relative">
-        {/* ADDED: "Go back" Button for success screen */}
         <div className="absolute top-4 left-4 md:top-8 md:left-8">
           <Button variant="ghost" asChild className="gap-2">
             <Link href="https://zamhack.com/">
@@ -115,7 +116,6 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-black relative">
-      {/* ADDED: "Go back" Button for main form */}
       <div className="absolute top-4 left-4 md:top-8 md:left-8">
         <Button variant="ghost" asChild className="gap-2">
           <Link href="https://zamhack.com/">
@@ -146,11 +146,16 @@ export default function SignupPage() {
             {/* STUDENT FORM */}
             <TabsContent value="student">
               <form onSubmit={studentForm.handleSubmit(onSubmit)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                {/* Changed grid-cols-2 to grid-cols-3 for First, Middle, Last */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>First Name</Label>
                     <Input {...studentForm.register("firstName")} disabled={isSubmitting} />
                     {studentForm.formState.errors.firstName && <p className="text-xs text-red-500">{studentForm.formState.errors.firstName.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Middle Name <span className="text-xs text-muted-foreground">(Optional)</span></Label>
+                    <Input {...studentForm.register("middleName")} disabled={isSubmitting} />
                   </div>
                   <div className="space-y-2">
                     <Label>Last Name</Label>
@@ -189,11 +194,15 @@ export default function SignupPage() {
             {/* COMPANY FORM */}
             <TabsContent value="company">
               <form onSubmit={companyForm.handleSubmit(onSubmit)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>First Name</Label>
                     <Input {...companyForm.register("firstName")} disabled={isSubmitting} />
                     {companyForm.formState.errors.firstName && <p className="text-xs text-red-500">{companyForm.formState.errors.firstName.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Middle Name <span className="text-xs text-muted-foreground">(Optional)</span></Label>
+                    <Input {...companyForm.register("middleName")} disabled={isSubmitting} />
                   </div>
                   <div className="space-y-2">
                     <Label>Last Name</Label>

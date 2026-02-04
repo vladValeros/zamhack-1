@@ -1,171 +1,113 @@
 import { createClient } from "@/utils/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ChallengeCard } from "@/components/challenge-card"
-import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
+import { ChallengeCard } from "@/components/challenge-card"
+import { ChallengeFilters } from "@/components/challenge-filters"
+import { Telescope } from "lucide-react"
 
-type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
-
-interface DashboardData {
-  firstName: string | null
-  activeChallenges: Challenge[]
-  activeCount: number
-  completedCount: number
+interface DashboardProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
-async function getDashboardData(): Promise<DashboardData> {
+export default async function StudentDashboard({ searchParams }: DashboardProps) {
   const supabase = await createClient()
+  const params = await searchParams
 
-  // Get current user
   const {
     data: { user },
-    error: userError,
   } = await supabase.auth.getUser()
 
-  if (userError || !user) {
-    redirect("/login")
+  if (!user) redirect("/login")
+
+  // Extract params
+  const q = typeof params.q === "string" ? params.q : ""
+  const category = typeof params.category === "string" ? params.category : ""
+  const sort = typeof params.sort === "string" ? params.sort : "newest"
+
+  // 1. Base Query
+  let query = supabase
+    .from("challenges")
+    .select(`
+      *,
+      organization:organizations(name)
+    `)
+    // Filter out draft/pending challenges immediately
+    .neq("status", "draft")
+    .neq("status", "pending_approval")
+    // FIX: Cast "rejected" to any to bypass TS error until types are regenerated
+    .neq("status", "rejected" as any)
+
+  // 2. Apply Search (Title or Description)
+  if (q) {
+    query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`)
   }
 
-  // Fetch user profile for first_name
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("first_name")
-    .eq("id", user.id)
-    .single()
-
-  // Fetch active challenges where user is a participant
-  // First, get challenge IDs where user is participating
-  const { data: participantData } = await supabase
-    .from("challenge_participants")
-    .select("challenge_id")
-    .eq("user_id", user.id)
-    .not("challenge_id", "is", null)
-
-  // FIX: Explicitly filter with a type predicate so TypeScript knows this is strictly string[]
-  const challengeIds = participantData
-    ?.map((p) => p.challenge_id)
-    .filter((id): id is string => id !== null) || []
-
-  // Fetch challenges that are approved or in_progress and user is participating
-  let activeChallenges: Challenge[] = []
-  if (challengeIds.length > 0) {
-    const { data, error: challengesError } = await supabase
-      .from("challenges")
-      .select("*")
-      .in("id", challengeIds)
-      .in("status", ["approved", "in_progress"])
-      .order("end_date", { ascending: true })
-      .limit(5)
-
-    if (challengesError) {
-      console.error("Error fetching challenges:", challengesError)
-    } else {
-      activeChallenges = (data as Challenge[]) || []
-    }
+  // 3. Apply Category Filter (Mapping to 'industry' column)
+  if (category && category !== "all") {
+    // ilike allows for partial matches e.g. "Tech" matching "Technology"
+    query = query.ilike("industry", `%${category}%`)
   }
 
-  // Count active challenges
-  const { count: activeCount } = await supabase
-    .from("challenge_participants")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .not("challenge_id", "is", null)
-
-  // Count completed challenges
-  const { count: completedCount } = await supabase
-    .from("challenge_participants")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .eq("status", "completed")
-
-  return {
-    firstName: profile?.first_name || null,
-    activeChallenges,
-    activeCount: activeCount || 0,
-    completedCount: completedCount || 0,
+  // 4. Apply Sorting
+  switch (sort) {
+    case "closing_soon":
+      // Order by registration deadline, nearest first.
+      // Only show challenges that haven't passed the deadline yet.
+      query = query
+        .gt("registration_deadline", new Date().toISOString())
+        .order("registration_deadline", { ascending: true })
+      break
+    case "participants_high":
+      // Sort by max_participants as a proxy for scale/popularity
+      query = query.order("max_participants", { ascending: false })
+      break
+    case "newest":
+    default:
+      query = query.order("created_at", { ascending: false })
+      break
   }
-}
 
-export default async function StudentDashboard() {
-  const { firstName, activeChallenges, activeCount, completedCount } =
-    await getDashboardData()
+  const { data: challenges, error } = await query
 
-  const displayName = firstName || "there"
+  if (error) {
+    console.error("Error fetching challenges:", error)
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Welcome back, {displayName}!</h1>
+    <div className="space-y-8 p-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Explore Challenges</h1>
         <p className="text-muted-foreground">
-          Here is what&apos;s happening with your challenges.
+          Find the perfect project to build your portfolio and win prizes.
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Active Challenges
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Challenges in progress
-            </p>
-          </CardContent>
-        </Card>
+      {/* Filter Component */}
+      <ChallengeFilters />
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{completedCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Challenges completed
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Skills Earned</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">
-              Skills from challenges
-            </p>
-          </CardContent>
-        </Card>
+      {/* Results Grid */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {challenges?.map((challenge) => (
+          <ChallengeCard 
+            key={challenge.id} 
+            challenge={challenge} 
+            href={`/challenges/${challenge.id}`}
+            // We pass showStatus=true by default, but the component handles hiding 'Approved' internally now
+          />
+        ))}
       </div>
 
-      {/* Active Challenges Section */}
-      <div className="space-y-4">
-        <h2 className="text-2xl font-semibold">Active Challenges</h2>
-
-        {activeChallenges.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <p className="text-muted-foreground">
-                No active challenges found
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Start by browsing available challenges
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {activeChallenges.map((challenge) => (
-              <ChallengeCard key={challenge.id} challenge={challenge} />
-            ))}
+      {/* Empty State */}
+      {(!challenges || challenges.length === 0) && (
+        <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-xl bg-slate-50 dark:bg-slate-900/50">
+          <div className="bg-white p-4 rounded-full shadow-sm mb-4 dark:bg-slate-800">
+            <Telescope className="h-8 w-8 text-muted-foreground" />
           </div>
-        )}
-      </div>
+          <h3 className="text-lg font-semibold">No challenges found</h3>
+          <p className="text-muted-foreground max-w-sm mt-2">
+            We couldn't find any challenges matching your filters. Try adjusting your search terms or category.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
