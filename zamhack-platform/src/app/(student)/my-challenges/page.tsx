@@ -1,25 +1,11 @@
 import { createClient } from "@/utils/supabase/server"
 import { ChallengeCard } from "@/components/challenge-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 
-type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
-type ChallengeParticipant = Database["public"]["Tables"]["challenge_participants"]["Row"]
-type Organization = Database["public"]["Tables"]["organizations"]["Row"]
-
-interface ChallengeWithProgress extends Challenge {
-  organization?: Organization | null
-  progress: number
-  participantId: string
-}
-
-async function getMyChallenges(): Promise<{
-  activeChallenges: ChallengeWithProgress[]
-  completedChallenges: ChallengeWithProgress[]
-}> {
+export default async function MyChallengesPage() {
   const supabase = await createClient()
 
   // Get current user
@@ -33,117 +19,47 @@ async function getMyChallenges(): Promise<{
   }
 
   // Fetch user's challenge participants with challenge details
+  // Using the join syntax to get the related challenge data
   const { data: participants, error: participantsError } = await supabase
     .from("challenge_participants")
-    .select(
-      `
+    .select(`
       id,
       challenge_id,
       status,
-      challenges (
+      joined_at,
+      challenge:challenges (
         *,
         organization:organizations (*)
       )
-    `
-    )
+    `)
     .eq("user_id", user.id)
-    .not("challenge_id", "is", null)
+    .order("joined_at", { ascending: false })
 
   if (participantsError) {
     console.error("Error fetching participants:", participantsError)
-    return { activeChallenges: [], completedChallenges: [] }
   }
 
-  if (!participants || participants.length === 0) {
-    return { activeChallenges: [], completedChallenges: [] }
-  }
+  // Process data to flat lists
+  const activeChallenges: any[] = []
+  const completedChallenges: any[] = []
 
-  // Process each participant to calculate progress
-  const challengesWithProgress: ChallengeWithProgress[] = []
+  participants?.forEach((p) => {
+    // Check if challenge data exists (it might be null if challenge was deleted)
+    if (!p.challenge) return
 
-  for (const participant of participants) {
-    // Handle nested select - Supabase returns as object or array
-    const challengeData = participant.challenges as unknown as
-      | (Challenge & { organization?: Organization | null })
-      | (Challenge & { organization?: Organization | null })[]
-      | null
+    // Type casting for safety if needed, though Supabase types usually handle this
+    const challengeData = p.challenge as any
 
-    if (!challengeData) continue
+    // Categorize based on Participant status OR Challenge status
+    // Usually "completed" means the user finished it, or the challenge itself is closed.
+    const isCompleted = p.status === "completed" || challengeData.status === "completed"
 
-    // If it's an array, take the first item (shouldn't happen but handle it)
-    const challenge = Array.isArray(challengeData) ? challengeData[0] : challengeData
-
-    if (!challenge) continue
-
-    // Fetch milestones for this challenge
-    const { data: milestones, error: milestonesError } = await supabase
-      .from("milestones")
-      .select("id")
-      .eq("challenge_id", challenge.id)
-
-    if (milestonesError) {
-      console.error("Error fetching milestones:", milestonesError)
-      continue
+    if (isCompleted) {
+      completedChallenges.push(challengeData)
+    } else {
+      activeChallenges.push(challengeData)
     }
-
-    const milestoneCount = milestones?.length || 0
-
-    // Fetch submissions for this participant
-    const { data: submissions, error: submissionsError } = await supabase
-      .from("submissions")
-      .select("id")
-      .eq("participant_id", participant.id)
-
-    if (submissionsError) {
-      console.error("Error fetching submissions:", submissionsError)
-      continue
-    }
-
-    const submissionCount = submissions?.length || 0
-
-    // Calculate progress percentage
-    const progress =
-      milestoneCount > 0 ? (submissionCount / milestoneCount) * 100 : 0
-
-    challengesWithProgress.push({
-      ...challenge,
-      organization: challenge.organization || null,
-      progress: Math.min(100, Math.max(0, progress)),
-      participantId: participant.id,
-    })
-  }
-
-  // Separate into active and completed
-  const activeChallenges = challengesWithProgress.filter(
-    (challenge) =>
-      challenge.status === "approved" ||
-      challenge.status === "in_progress" ||
-      challenge.status === "under_review"
-  )
-
-  const completedChallenges = challengesWithProgress.filter(
-    (challenge) => challenge.status === "completed"
-  )
-
-  // Sort active challenges by end_date (ascending - closest deadline first)
-  activeChallenges.sort((a, b) => {
-    if (!a.end_date) return 1
-    if (!b.end_date) return -1
-    return new Date(a.end_date).getTime() - new Date(b.end_date).getTime()
   })
-
-  // Sort completed challenges by end_date (descending - most recent first)
-  completedChallenges.sort((a, b) => {
-    if (!a.end_date) return 1
-    if (!b.end_date) return -1
-    return new Date(b.end_date).getTime() - new Date(a.end_date).getTime()
-  })
-
-  return { activeChallenges, completedChallenges }
-}
-
-export default async function MyChallengesPage() {
-  const { activeChallenges, completedChallenges } = await getMyChallenges()
 
   const hasAnyChallenges = activeChallenges.length > 0 || completedChallenges.length > 0
 
@@ -194,8 +110,8 @@ export default async function MyChallengesPage() {
                   <ChallengeCard
                     key={challenge.id}
                     challenge={challenge}
-                    progress={challenge.progress}
-                    buttonText="Continue"
+                    href={`/challenges/${challenge.id}`}
+                    // Removed 'progress' prop as it's not supported by ChallengeCard
                   />
                 ))}
               </div>
@@ -216,8 +132,7 @@ export default async function MyChallengesPage() {
                   <ChallengeCard
                     key={challenge.id}
                     challenge={challenge}
-                    progress={challenge.progress}
-                    buttonText="View Results"
+                    href={`/challenges/${challenge.id}`}
                   />
                 ))}
               </div>
@@ -228,4 +143,3 @@ export default async function MyChallengesPage() {
     </div>
   )
 }
-
