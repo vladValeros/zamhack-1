@@ -7,8 +7,8 @@ import { Progress } from "@/components/ui/progress"
 import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
 import Link from "next/link"
+import { Lock } from "lucide-react" // <--- ADDED THIS IMPORT
 import { submitChallengeForApproval } from "@/app/challenges/actions"
-// --- NEW IMPORT ---
 import { CloseChallengeButton } from "@/components/challenges/close-challenge-button"
 
 type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
@@ -280,7 +280,7 @@ const getStatusBadgeVariant = (status: string | null) => {
     case "completed":
       return "success"
     case "closed":
-      return "destructive" // Mark closed as red/destructive style for visibility
+      return "destructive"
     case "cancelled":
       return "destructive"
     default:
@@ -304,7 +304,6 @@ const getParticipantName = (participant: ParticipantWithProfile) => {
 
 const getParticipantEmail = (participant: ParticipantWithProfile) => {
   // Note: Email is not in profiles table, would need to join with auth.users
-  // For now, return a placeholder
   return "N/A"
 }
 
@@ -324,7 +323,6 @@ export default async function ChallengeManagementPage({
     data
 
   const isDraft = challenge.status === "draft"
-  // --- NEW LOGIC: Check if challenge is already closed ---
   const isClosed = challenge.status === 'closed' || challenge.status === 'completed'
 
   return (
@@ -361,9 +359,10 @@ export default async function ChallengeManagementPage({
             <Link href={`/company/challenges/${id}/edit`}>Edit Challenge</Link>
           </Button>
           
-          {/* --- UPDATED: Close Challenge Button with Logic --- */}
+          {/* Close Challenge Button */}
           {isClosed ? (
              <Button variant="outline" disabled className="opacity-50">
+               <Lock className="mr-2 h-4 w-4" />
                Challenge Closed
              </Button>
           ) : (
