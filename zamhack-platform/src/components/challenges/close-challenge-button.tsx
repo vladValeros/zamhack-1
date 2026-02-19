@@ -40,16 +40,16 @@ export function CloseChallengeButton({ challengeId, disabled }: { challengeId: s
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" className="w-full" disabled={disabled || loading}>
+        <Button variant="destructive" disabled={disabled || loading}>
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
-          Close Challenge & Announce Winners
+          Close Challenge
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will officially close the challenge. The system will automatically calculate the top scorers based on your evaluations and publish the results to the Student Dashboard. 
+            This will officially close the challenge. The system will automatically calculate the top scorers based on your evaluations and publish the results to the Student Dashboard.
             <br /><br />
             <strong>This action cannot be undone.</strong>
           </AlertDialogDescription>
