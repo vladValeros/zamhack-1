@@ -38,7 +38,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Define protected routes
-  const protectedRoutes = ["/dashboard", "/company", "/admin"];
+  const protectedRoutes = ["/dashboard", "/company", "/admin", "/profiles"];
   const isProtectedRoute = protectedRoutes.some((route) =>
     pathname.startsWith(route)
   );
@@ -56,8 +56,13 @@ export async function middleware(request: NextRequest) {
   if (user) {
     // If accessing public route (login/signup), redirect to dashboard
     if (isPublicRoute) {
-       // We redirect to /dashboard and let the logic below handle role-based routing
-       return NextResponse.redirect(new URL("/dashboard", request.url));
+      // We redirect to /dashboard and let the logic below handle role-based routing
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+
+    // /profiles is accessible to all authenticated roles — no role check needed
+    if (pathname.startsWith("/profiles")) {
+      return supabaseResponse;
     }
 
     // Fetch user profile to get role
@@ -67,12 +72,10 @@ export async function middleware(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
-    // --- DEBUG LOGS (Check your terminal!) ---
     console.log("--- MIDDLEWARE DEBUG ---");
     console.log("User Email:", user.email);
     console.log("Role Found:", profile?.role);
     console.log("Profile Error:", error);
-    // -----------------------------------------
 
     const role = profile?.role;
 
