@@ -11,8 +11,8 @@ import Link from "next/link"
 interface WinnerData {
   rank: number
   prize: string | null
-  score: number | null  // ← FIX: read stored score directly from winners table
-  profile_id: string
+  score: number | null  // ← reads stored score directly from winners table
+  profile_id: string    // needed to match with participant scores
   profile: {
     first_name: string | null
     last_name: string | null
@@ -21,14 +21,8 @@ interface WinnerData {
   } | null
 }
 
-interface ParticipantScore {
-  user_id: string
-  first_name: string | null
-  last_name: string | null
-  avatar_url: string | null
-  university: string | null
-  totalScore: number
-}
+// NOTE: ParticipantScore interface removed — leaderboard is now sourced from
+// the winners table directly to bypass RLS on challenge_participants.
 
 export default async function ChallengeResultsPage({
   params,
@@ -67,7 +61,7 @@ export default async function ChallengeResultsPage({
     )
   }
 
-  // 2. Fetch Winners — now includes `score` stored at close/recalculate time
+  // 2. Fetch Winners — include profile_id and score stored at close/recalculate time
   const { data } = await supabase
     .from("winners")
     .select(`
@@ -82,48 +76,17 @@ export default async function ChallengeResultsPage({
 
   const winners = data as unknown as WinnerData[] | null
 
-  // 3. Fetch all participants and compute their total score from evaluations
-  const { data: participantsRaw } = await supabase
-    .from("challenge_participants")
-    .select(`
-      user_id,
-      profile:profiles (first_name, last_name, avatar_url, university),
-      submissions (
-        evaluations (score)
-      )
-    `)
-    .eq("challenge_id", id)
+  // NOTE: allParticipants query removed — RLS on challenge_participants blocks
+  // students from seeing other participants' rows, causing leaderboard to show
+  // only the logged-in user. The winners table is publicly readable and contains
+  // all the data we need for both the podium and the full leaderboard.
 
-  const allParticipants: ParticipantScore[] = (
-    (participantsRaw ?? []) as any[]
-  )
-    .map((p) => {
-      const totalScore = (p.submissions ?? []).reduce(
-        (acc: number, sub: any) => {
-          return acc + (sub.evaluations?.[0]?.score ?? 0)
-        },
-        0
-      )
-      return {
-        user_id: p.user_id,
-        first_name: p.profile?.first_name ?? null,
-        last_name: p.profile?.last_name ?? null,
-        avatar_url: p.profile?.avatar_url ?? null,
-        university: p.profile?.university ?? null,
-        totalScore,
-      }
-    })
-    .sort((a, b) => b.totalScore - a.totalScore)
-
-  // Attach score to each winner for the podium display.
-  // Priority: stored score from winners table (reliable) → live computed score (fallback)
+  // Attach stored score to each winner for the podium display.
+  // score comes directly from the winners table — set at closeChallenge /
+  // recalculateWinners time — so it is always correct regardless of RLS.
   const winnersWithScore = (winners ?? []).map((w) => ({
     ...w,
-    totalScore:
-      // ← FIX: use stored score first; only fall back to live computation if null
-      w.score ??
-      allParticipants.find((p) => p.user_id === w.profile_id)?.totalScore ??
-      0,
+    totalScore: w.score ?? 0,
   }))
 
   const getRankConfig = (rank: number) => {
@@ -144,7 +107,7 @@ export default async function ChallengeResultsPage({
           color: "text-slate-600",
           bg: "bg-gradient-to-b from-slate-50 to-slate-100/60 border-slate-200",
           iconColor: "text-slate-400",
-          icon: Medal,
+          icon: Medal, // FIX: was Ribbon, which doesn't exist in lucide-react
           badgeBg: "bg-black/90 text-white hover:bg-black/80",
           heightClass: "md:min-h-[19rem]",
           scale: "scale-100",
@@ -155,7 +118,7 @@ export default async function ChallengeResultsPage({
           color: "text-amber-700",
           bg: "bg-gradient-to-b from-orange-50 to-orange-100/60 border-orange-200",
           iconColor: "text-amber-600",
-          icon: Award,
+          icon: Award, // FIX: was Ribbon, which doesn't exist in lucide-react
           badgeBg: "bg-black/90 text-white hover:bg-black/80",
           heightClass: "md:min-h-[17rem]",
           scale: "scale-100",
@@ -266,7 +229,7 @@ export default async function ChallengeResultsPage({
                     {profile?.university}
                   </p>
 
-                  {/* Total score — sourced from winners.score, not live computation */}
+                  {/* Total score — sourced from winners.score, set at close/recalculate time */}
                   <div
                     className={`mt-3 text-2xl font-extrabold ${config.scoreColor}`}
                   >
@@ -289,15 +252,17 @@ export default async function ChallengeResultsPage({
           })}
         </div>
 
-        {/* Full Leaderboard */}
-        {allParticipants.length > 0 && (
+        {/* Full Leaderboard — sourced from winnersWithScore (winners table) instead of
+            allParticipants (challenge_participants) to bypass RLS that blocks students
+            from seeing other participants' rows. */}
+        {winnersWithScore.length > 0 && (
           <div>
             <div className="flex items-center gap-3 mb-4">
               <h2 className="text-lg font-bold">Full Leaderboard</h2>
               <div className="flex-1 h-px bg-border" />
               <span className="text-sm text-muted-foreground">
-                {allParticipants.length} participant
-                {allParticipants.length !== 1 ? "s" : ""}
+                {winnersWithScore.length} participant
+                {winnersWithScore.length !== 1 ? "s" : ""}
               </span>
             </div>
 
@@ -321,13 +286,12 @@ export default async function ChallengeResultsPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {allParticipants.map((p, i) => {
-                      const position = i + 1
-                      const isTop3 = position <= 3
+                    {winnersWithScore.map((w) => {
+                      const isTop3 = w.rank <= 3
 
                       return (
                         <tr
-                          key={p.user_id}
+                          key={w.profile_id}
                           className={`border-b last:border-0 transition-colors hover:bg-muted/30 ${
                             isTop3 ? "bg-muted/10" : ""
                           }`}
@@ -337,18 +301,18 @@ export default async function ChallengeResultsPage({
                             {isTop3 ? (
                               <span
                                 className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-xs font-bold ${
-                                  position === 1
+                                  w.rank === 1
                                     ? "bg-yellow-100 text-yellow-700"
-                                    : position === 2
+                                    : w.rank === 2
                                     ? "bg-slate-100 text-slate-600"
                                     : "bg-orange-100 text-amber-700"
                                 }`}
                               >
-                                {position}
+                                {w.rank}
                               </span>
                             ) : (
                               <span className="text-xs text-muted-foreground/60 font-mono">
-                                {position}
+                                {w.rank}
                               </span>
                             )}
                           </td>
@@ -358,21 +322,21 @@ export default async function ChallengeResultsPage({
                             <div className="flex items-center gap-3">
                               <Avatar className="h-8 w-8 border border-border">
                                 <AvatarImage
-                                  src={p.avatar_url || undefined}
+                                  src={w.profile?.avatar_url || undefined}
                                 />
                                 <AvatarFallback className="text-xs bg-muted font-semibold">
-                                  {p.first_name?.[0] ?? "U"}
+                                  {w.profile?.first_name?.[0] ?? "U"}
                                 </AvatarFallback>
                               </Avatar>
                               <span className="font-medium">
-                                {p.first_name} {p.last_name}
+                                {w.profile?.first_name} {w.profile?.last_name}
                               </span>
                             </div>
                           </td>
 
                           {/* University */}
                           <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
-                            {p.university ?? "—"}
+                            {w.profile?.university ?? "—"}
                           </td>
 
                           {/* Score */}
@@ -384,7 +348,7 @@ export default async function ChallengeResultsPage({
                                   : "text-muted-foreground"
                               }`}
                             >
-                              {p.totalScore}
+                              {w.totalScore}
                             </span>
                             <span className="text-xs text-muted-foreground ml-1">
                               pts
