@@ -15,7 +15,13 @@ const DIFFICULTIES = Constants.public.Enums.proficiency_level;
 const INDUSTRIES = ["Technology", "Finance", "Healthcare", "Education", "Other"] as const;
 const PARTICIPATION_TYPES = ["solo", "team", "both"] as const;
 
-export default function EditChallengeForm({ challenge }: { challenge: any }) {
+export default function EditChallengeForm({
+  challenge,
+  isLiveEdit = false,
+}: {
+  challenge: any;
+  isLiveEdit?: boolean;
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +96,7 @@ export default function EditChallengeForm({ challenge }: { challenge: any }) {
     setError(null);
 
     try {
-      await updateChallenge(challenge.id, {
+      const result = await updateChallenge(challenge.id, {
         title,
         description,
         problem_brief: problemBrief,
@@ -108,6 +114,10 @@ export default function EditChallengeForm({ challenge }: { challenge: any }) {
         currency,
         milestones,
       });
+
+      // Navigate client-side — avoids NEXT_REDIRECT being caught as an error
+      router.push(result.redirectTo);
+      router.refresh();
     } catch (err: any) {
       setError(err.message ?? "Something went wrong");
       setLoading(false);
@@ -428,7 +438,9 @@ export default function EditChallengeForm({ challenge }: { challenge: any }) {
           disabled={loading}
           className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-md font-medium disabled:opacity-50"
         >
-          {loading ? "Saving..." : "Save Changes"}
+          {loading
+            ? isLiveEdit ? "Submitting..." : "Saving..."
+            : isLiveEdit ? "Submit for Review" : "Save Changes"}
         </button>
         <button
           type="button"

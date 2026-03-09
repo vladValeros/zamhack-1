@@ -1,6 +1,4 @@
-//src/types/supabase.ts
-
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -92,6 +90,64 @@ export type Database = {
           {
             foreignKeyName: "challenge_participants_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      challenge_pending_edits: {
+        Row: {
+          admin_note: string | null
+          challenge_id: string
+          created_at: string | null
+          id: string
+          payload: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_by: string
+        }
+        Insert: {
+          admin_note?: string | null
+          challenge_id: string
+          created_at?: string | null
+          id?: string
+          payload: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by: string
+        }
+        Update: {
+          admin_note?: string | null
+          challenge_id?: string
+          created_at?: string | null
+          id?: string
+          payload?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "challenge_pending_edits_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_pending_edits_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_pending_edits_submitted_by_fkey"
+            columns: ["submitted_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -459,6 +515,66 @@ export type Database = {
         }
         Relationships: []
       }
+      payments: {
+        Row: {
+          amount: number
+          challenge_id: string
+          checkout_session_id: string | null
+          created_at: string | null
+          currency: string
+          id: string
+          paid_at: string | null
+          payment_intent_id: string | null
+          provider: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          challenge_id: string
+          checkout_session_id?: string | null
+          created_at?: string | null
+          currency?: string
+          id?: string
+          paid_at?: string | null
+          payment_intent_id?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          challenge_id?: string
+          checkout_session_id?: string | null
+          created_at?: string | null
+          currency?: string
+          id?: string
+          paid_at?: string | null
+          payment_intent_id?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_settings: {
         Row: {
           allow_new_signups: boolean | null
@@ -482,66 +598,6 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
-      }
-      payments: {
-        Row: {
-          id: string
-          user_id: string
-          challenge_id: string
-          amount: number
-          currency: string
-          status: "pending" | "paid" | "failed" | "refunded"
-          provider: string
-          checkout_session_id: string | null
-          payment_intent_id: string | null
-          created_at: string | null
-          paid_at: string | null
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          challenge_id: string
-          amount: number
-          currency?: string
-          status?: "pending" | "paid" | "failed" | "refunded"
-          provider?: string
-          checkout_session_id?: string | null
-          payment_intent_id?: string | null
-          created_at?: string | null
-          paid_at?: string | null
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          challenge_id?: string
-          amount?: number
-          currency?: string
-          status?: "pending" | "paid" | "failed" | "refunded"
-          provider?: string
-          checkout_session_id?: string | null
-          payment_intent_id?: string | null
-          created_at?: string | null
-          paid_at?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "payments_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payments_challenge_id_fkey"
-            columns: ["challenge_id"]
-            isOneToOne: false
-            referencedRelation: "challenges"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       profiles: {
         Row: {
@@ -896,6 +952,7 @@ export type Database = {
           prize: string | null
           profile_id: string
           rank: number
+          score: number | null
         }
         Insert: {
           announced_at?: string | null
@@ -904,6 +961,7 @@ export type Database = {
           prize?: string | null
           profile_id: string
           rank: number
+          score?: number | null
         }
         Update: {
           announced_at?: string | null
@@ -912,6 +970,7 @@ export type Database = {
           prize?: string | null
           profile_id?: string
           rank?: number
+          score?: number | null
         }
         Relationships: [
           {

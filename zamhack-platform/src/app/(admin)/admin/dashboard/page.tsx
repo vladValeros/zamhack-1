@@ -10,15 +10,22 @@ import {
   Clock,
   CheckCircle2,
   ArrowRight,
+  FilePenLine,
 } from "lucide-react"
 import "@/app/(admin)/admin.css"
 
 type Organization = Database["public"]["Tables"]["organizations"]["Row"]
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
+type PendingEdit = Database["public"]["Tables"]["challenge_pending_edits"]["Row"]
+
+interface PendingEditWithChallenge extends PendingEdit {
+  challenge: { title: string; id: string } | null
+}
 
 interface DashboardData {
   pendingOrgs: Organization[]
   pendingChallenges: any[]
+  pendingEdits: PendingEditWithChallenge[]
   stats: {
     totalUsers: number
     totalOrganizations: number
@@ -59,6 +66,15 @@ async function getAdminDashboardData(): Promise<DashboardData> {
 
   if (challengeError) console.error("Error fetching pending challenges:", challengeError)
 
+  // Fetch pending challenge edits with the challenge title for display
+  const { data: pendingEdits, error: editsError } = await supabase
+    .from("challenge_pending_edits")
+    .select(`*, challenge:challenges(id, title)`)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+
+  if (editsError) console.error("Error fetching pending edits:", editsError)
+
   const { count: userCount } = await supabase
     .from("profiles")
     .select("*", { count: "exact", head: true })
@@ -80,6 +96,7 @@ async function getAdminDashboardData(): Promise<DashboardData> {
   return {
     pendingOrgs: pendingOrgs || [],
     pendingChallenges: pendingChallenges || [],
+    pendingEdits: (pendingEdits as PendingEditWithChallenge[]) || [],
     stats: {
       totalUsers: userCount || 0,
       totalOrganizations: orgCount || 0,
@@ -99,7 +116,11 @@ const getUserName = (user: Profile) => {
 }
 
 export default async function AdminDashboardPage() {
-  const { pendingOrgs, pendingChallenges, stats, recentUsers } = await getAdminDashboardData()
+  const { pendingOrgs, pendingChallenges, pendingEdits, stats, recentUsers } =
+    await getAdminDashboardData()
+
+  const totalPendingActions =
+    pendingOrgs.length + pendingChallenges.length + pendingEdits.length
 
   return (
     <div className="space-y-6" data-layout="admin">
@@ -156,9 +177,8 @@ export default async function AdminDashboardPage() {
               <Clock />
             </div>
           </div>
-          <div className="admin-stat-value">
-            {pendingOrgs.length + pendingChallenges.length}
-          </div>
+          {/* Now includes pending edits in the total */}
+          <div className="admin-stat-value">{totalPendingActions}</div>
           <p className="admin-stat-description">Actions requiring your attention</p>
         </div>
       </div>
@@ -265,7 +285,7 @@ export default async function AdminDashboardPage() {
                     </div>
                   </div>
                   <div className="admin-action-card-actions">
-                    <Link href={`/admin/challenges?id=${challenge.id}`}>
+                    <Link href={`/admin/challenges/${challenge.id}`}>
                       <button className="admin-btn admin-btn-coral admin-btn-sm">
                         Review
                       </button>
@@ -284,6 +304,72 @@ export default async function AdminDashboardPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Pending Challenge Edits — full width row */}
+      <div className="admin-card">
+        <div className="admin-card-header">
+          <div>
+            <div className="admin-card-title">Pending Challenge Edits</div>
+            <div className="admin-card-subtitle">
+              Live challenges with edits submitted by companies for review
+            </div>
+          </div>
+          {pendingEdits.length > 0 && (
+            <span className="admin-badge yellow">
+              <span className="admin-badge-dot" />
+              {pendingEdits.length} pending
+            </span>
+          )}
+        </div>
+
+        {pendingEdits.length === 0 ? (
+          <div className="admin-empty">
+            <div className="admin-empty-icon">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div className="admin-empty-title">All caught up!</div>
+            <div className="admin-empty-text">No challenge edits awaiting review</div>
+          </div>
+        ) : (
+          <div>
+            {pendingEdits.slice(0, 5).map((edit) => (
+              <div key={edit.id} className="admin-action-card">
+                <div className="admin-action-card-info">
+                  <div
+                    className="admin-action-card-avatar"
+                    style={{ background: "var(--admin-yellow-glow, #fef9c3)", color: "#854d0e" }}
+                  >
+                    <FilePenLine className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="admin-action-card-name">
+                      {edit.challenge?.title || "Untitled Challenge"}
+                    </div>
+                    <div className="admin-action-card-meta">
+                      Edit submitted · {formatDate(edit.created_at)}
+                    </div>
+                  </div>
+                </div>
+                <div className="admin-action-card-actions">
+                  <Link href={`/admin/challenges/${edit.challenge_id}`}>
+                    <button className="admin-btn admin-btn-coral admin-btn-sm">
+                      Review Edit
+                    </button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+            {pendingEdits.length > 5 && (
+              <div className="p-4 text-center">
+                <Link href="/admin/challenges" className="admin-btn admin-btn-outline admin-btn-sm">
+                  View all {pendingEdits.length} pending edits
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Recent Users */}
