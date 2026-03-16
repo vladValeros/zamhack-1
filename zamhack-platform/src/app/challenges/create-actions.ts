@@ -45,6 +45,9 @@ interface CreateChallengeInput {
   /** If true, no end date is stored */
   isPerpetual: boolean
 
+  /** How submission scores are calculated when both company and evaluator review */
+  scoringMode: "company_only" | "evaluator_only" | "average"
+
   milestones: MilestoneInput[]
   skills: string[]
   organizationId: string
@@ -143,6 +146,9 @@ export const createChallenge = async (
 
       // New perpetual field
       is_perpetual: input.isPerpetual,
+
+      // Scoring mode
+      scoring_mode: input.scoringMode,
     }
 
     const { data: challenge, error: challengeError } = await supabase

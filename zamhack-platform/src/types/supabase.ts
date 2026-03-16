@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -19,16 +19,19 @@ export type Database = {
           assigned_at: string | null
           challenge_id: string
           evaluator_id: string
+          review_deadline: string | null
         }
         Insert: {
           assigned_at?: string | null
           challenge_id: string
           evaluator_id: string
+          review_deadline?: string | null
         }
         Update: {
           assigned_at?: string | null
           challenge_id?: string
           evaluator_id?: string
+          review_deadline?: string | null
         }
         Relationships: [
           {
@@ -210,6 +213,7 @@ export type Database = {
           participation_type: string | null
           problem_brief: string | null
           registration_deadline: string | null
+          scoring_mode: string
           start_date: string | null
           status: Database["public"]["Enums"]["challenge_status"] | null
           title: string
@@ -237,6 +241,7 @@ export type Database = {
           participation_type?: string | null
           problem_brief?: string | null
           registration_deadline?: string | null
+          scoring_mode?: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["challenge_status"] | null
           title: string
@@ -264,6 +269,7 @@ export type Database = {
           participation_type?: string | null
           problem_brief?: string | null
           registration_deadline?: string | null
+          scoring_mode?: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["challenge_status"] | null
           title?: string

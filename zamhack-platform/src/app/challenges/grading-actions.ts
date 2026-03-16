@@ -35,10 +35,14 @@ export async function submitEvaluation(
     return { success: false, error: "User profile not found" }
   }
 
-  if (profile.role !== "company_admin" && profile.role !== "company_member") {
-    return { success: false, error: "Unauthorized: Only company members can evaluate submissions" }
+  const isCompany = profile.role === "company_admin" || profile.role === "company_member"
+  const isEvaluator = profile.role === "evaluator"
+
+  if (!isCompany && !isEvaluator) {
+    return { success: false, error: "Unauthorized: Only company members or evaluators can evaluate submissions" }
   }
 
+  // Fetch submission
   const { data: submission, error: submissionError } = await supabase
     .from("submissions")
     .select("id, milestone_id, participant_id")
@@ -53,6 +57,7 @@ export async function submitEvaluation(
     return { success: false, error: "Submission is not linked to a milestone" }
   }
 
+  // Fetch milestone → challenge
   const { data: milestone, error: milestoneError } = await supabase
     .from("milestones")
     .select("challenge_id")
@@ -73,18 +78,42 @@ export async function submitEvaluation(
     return { success: false, error: "Challenge not found" }
   }
 
-  if (challenge.organization_id !== profile.organization_id) {
-    return { success: false, error: "Unauthorized: You can only evaluate submissions for your organization's challenges" }
+  // ── Ownership check (different per role) ──────────────────────────────────
+
+  if (isCompany) {
+    if (challenge.organization_id !== profile.organization_id) {
+      return { success: false, error: "Unauthorized: You can only evaluate submissions for your organization's challenges" }
+    }
   }
+
+  if (isEvaluator) {
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("challenge_evaluators")
+      .select("evaluator_id")
+      .eq("challenge_id", challenge.id)
+      .eq("evaluator_id", user.id)
+      .maybeSingle()
+
+    if (assignmentError || !assignment) {
+      return { success: false, error: "Unauthorized: You are not assigned to evaluate this challenge" }
+    }
+  }
+
+  // ── Compute score ─────────────────────────────────────────────────────────
 
   const totalScore = directScore !== undefined
     ? directScore
     : rubricScores.reduce((sum, item) => sum + item.score, 0)
 
+  // ── Upsert evaluation — scoped to this reviewer ───────────────────────────
+  // Each reviewer (company or evaluator) gets their own evaluation row.
+  // Match on submission_id AND reviewer_id to avoid overwriting each other.
+
   const { data: existingEvaluation } = await supabase
     .from("evaluations")
     .select("id")
     .eq("submission_id", submissionId)
+    .eq("reviewer_id", user.id)
     .maybeSingle()
 
   const evaluationData: EvaluationInsert | EvaluationUpdate = {
@@ -96,7 +125,7 @@ export async function submitEvaluation(
     updated_at: new Date().toISOString(),
   }
 
-  let error: { error: string } | null = null
+  let evalError: { error: string } | null = null
 
   if (existingEvaluation) {
     const { error: updateError } = await supabase
@@ -105,7 +134,7 @@ export async function submitEvaluation(
       .eq("id", existingEvaluation.id)
 
     if (updateError) {
-      error = { error: updateError.message || "Failed to update evaluation" }
+      evalError = { error: updateError.message || "Failed to update evaluation" }
     }
   } else {
     const { error: insertError } = await supabase
@@ -113,13 +142,15 @@ export async function submitEvaluation(
       .insert(evaluationData)
 
     if (insertError) {
-      error = { error: insertError.message || "Failed to create evaluation" }
+      evalError = { error: insertError.message || "Failed to create evaluation" }
     }
   }
 
-  if (error) {
-    return { success: false, error: error.error }
+  if (evalError) {
+    return { success: false, error: evalError.error }
   }
+
+  // ── Save rubric scores ────────────────────────────────────────────────────
 
   await supabase
     .from("scores" as any)
@@ -143,8 +174,115 @@ export async function submitEvaluation(
     }
   }
 
+  // Revalidate relevant paths for both roles
   revalidatePath(`/company/challenges/${milestone.challenge_id}`)
+  revalidatePath(`/evaluator/assignments/${milestone.challenge_id}`)
 
   return { success: true }
 }
 
+// ─── Rubric Management ────────────────────────────────────────────────────────
+
+async function getCompanyChallenge(challengeId: string) {
+  const supabase = await createClient()
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) return { supabase, user: null, error: "Not authenticated" }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("role, organization_id")
+    .eq("id", user.id)
+    .single()
+
+  if (profileError || !profile) return { supabase, user, error: "Profile not found" }
+  if (profile.role !== "company_admin" && profile.role !== "company_member") {
+    return { supabase, user, error: "Unauthorized" }
+  }
+
+  const { data: challenge, error: challengeError } = await supabase
+    .from("challenges")
+    .select("id, organization_id")
+    .eq("id", challengeId)
+    .single()
+
+  if (challengeError || !challenge) return { supabase, user, error: "Challenge not found" }
+  if (challenge.organization_id !== profile.organization_id) {
+    return { supabase, user, error: "Unauthorized: This challenge does not belong to your organization" }
+  }
+
+  return { supabase, user, error: null }
+}
+
+export async function saveRubric(
+  challengeId: string,
+  criteriaName: string,
+  maxPoints: number,
+  rubricId?: string
+): Promise<{ success: boolean; error?: string; id?: string }> {
+  const { supabase, error: authError } = await getCompanyChallenge(challengeId)
+  if (authError) return { success: false, error: authError }
+
+  const trimmedName = criteriaName.trim()
+  if (!trimmedName) return { success: false, error: "Criteria name cannot be empty" }
+  if (maxPoints < 1 || maxPoints > 1000) return { success: false, error: "Max points must be between 1 and 1000" }
+
+  if (rubricId) {
+    const { data: existing, error: fetchError } = await supabase
+      .from("rubrics")
+      .select("id, challenge_id")
+      .eq("id", rubricId)
+      .single()
+
+    if (fetchError || !existing) return { success: false, error: "Rubric not found" }
+    if (existing.challenge_id !== challengeId) return { success: false, error: "Unauthorized" }
+
+    const { error: updateError } = await supabase
+      .from("rubrics")
+      .update({ criteria_name: trimmedName, max_points: maxPoints })
+      .eq("id", rubricId)
+
+    if (updateError) return { success: false, error: updateError.message }
+
+    revalidatePath(`/company/challenges/${challengeId}`)
+    return { success: true, id: rubricId }
+  }
+
+  const { data: newRubric, error: insertError } = await supabase
+    .from("rubrics")
+    .insert({ challenge_id: challengeId, criteria_name: trimmedName, max_points: maxPoints })
+    .select("id")
+    .single()
+
+  if (insertError || !newRubric) return { success: false, error: insertError?.message || "Failed to create rubric" }
+
+  revalidatePath(`/company/challenges/${challengeId}`)
+  return { success: true, id: newRubric.id }
+}
+
+export async function deleteRubric(
+  rubricId: string,
+  challengeId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { supabase, error: authError } = await getCompanyChallenge(challengeId)
+  if (authError) return { success: false, error: authError }
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("rubrics")
+    .select("id, challenge_id")
+    .eq("id", rubricId)
+    .single()
+
+  if (fetchError || !existing) return { success: false, error: "Rubric not found" }
+  if (existing.challenge_id !== challengeId) return { success: false, error: "Unauthorized" }
+
+  const { error: deleteError } = await supabase
+    .from("rubrics")
+    .delete()
+    .eq("id", rubricId)
+
+  if (deleteError) return { success: false, error: deleteError.message }
+
+  revalidatePath(`/company/challenges/${challengeId}`)
+  return { success: true }
+}
