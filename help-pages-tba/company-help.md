@@ -117,7 +117,3 @@ Click **Admin Support** in the sidebar:
 
 > [\!TIP]
 > Always **Log out** via the button at the bottom of the sidebar when using a shared computer to ensure your session remains secure.
-
------
-
-**Would you like me to generate a `CONTRIBUTING.md` file or a specific "Rules of Engagement" section for the students viewing these challenges?**
