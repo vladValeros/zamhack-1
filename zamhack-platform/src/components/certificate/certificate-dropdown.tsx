@@ -114,7 +114,8 @@ export default function CertificateDropdown({
         type === "winner" && rank
           ? `Winner_${RANK_LABEL[rank].replace(" ", "")}`
           : "Completion"
-      pdf.save(`ZamHack_${prefix}_${safeName}_${safeChallenge}.pdf`)
+      const { savePdfFile } = await import("@/components/certificate/save-pdf")
+      await savePdfFile(pdf, `ZamHack_${prefix}_${safeName}_${safeChallenge}.pdf`)
     } catch (err) {
       console.error("Certificate generation failed:", err)
     } finally {
