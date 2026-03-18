@@ -288,6 +288,11 @@ export const GradingForm = ({
                         min={0}
                         max={field.max_points}
                         {...form.register(`rubricScores.${index}.score` as const, { valueAsNumber: true })}
+                        onChange={(e) => {
+                          const val = Number(e.target.value)
+                          const clamped = Math.max(0, Math.min(field.max_points, isNaN(val) ? 0 : val))
+                          form.setValue(`rubricScores.${index}.score`, clamped, { shouldValidate: true })
+                        }}
                       />
                       {form.formState.errors.rubricScores?.[index]?.score && (
                         <p className="text-xs text-destructive">
