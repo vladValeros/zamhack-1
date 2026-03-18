@@ -46,9 +46,11 @@ const LoginPage = () => {
     setIsSubmitting(true)
 
     try {
+      const { Capacitor } = await import("@capacitor/core")
       const formData = new FormData()
       formData.append("email", data.email)
       formData.append("password", data.password)
+      formData.append("platform", Capacitor.isNativePlatform() ? "mobile" : "web")
 
       const result = await login(formData)
 
@@ -70,7 +72,7 @@ const LoginPage = () => {
       {/* ADDED: "Go back" Button */}
       <div className="absolute top-4 left-4 md:top-8 md:left-8">
         <Button variant="ghost" asChild className="gap-2">
-          <Link href="https://zamhack.com/">
+          <Link href="https://zamhack.vercel.app/">
             <ArrowLeft className="h-4 w-4" />
             Go back
           </Link>

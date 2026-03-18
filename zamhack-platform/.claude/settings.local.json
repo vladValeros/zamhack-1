@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint:*)",
+      "Bash(npx eslint:*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :3000)",
+      "Bash(npm run:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://localhost:3000/api/talent/recommend)"
+    ]
+  }
+}

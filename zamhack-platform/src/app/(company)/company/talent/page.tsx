@@ -9,6 +9,8 @@ type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 export interface StudentWithStats extends Profile {
   completedChallenges: number
   activeChallenges: number
+  matchScore?: number
+  matchReason?: string
 }
 
 const COMPLETED_STATUSES = new Set(["completed", "closed"])
@@ -20,7 +22,13 @@ function classifyStatus(status: string): "completed" | "active" | "none" {
   return "active"
 }
 
-async function getTalentData(): Promise<StudentWithStats[]> {
+type TalentData = {
+  students: StudentWithStats[]
+  isCacheStale: boolean
+  companyUserId: string
+}
+
+async function getTalentData(): Promise<TalentData> {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -42,7 +50,30 @@ async function getTalentData(): Promise<StudentWithStats[]> {
     .eq("role", "student")
     .order("created_at", { ascending: false })
 
-  if (error || !students || students.length === 0) return []
+  if (error || !students || students.length === 0) {
+    return { students: [], isCacheStale: false, companyUserId: user.id }
+  }
+
+  // Fetch cached match scores (including reason and computed_at for staleness check)
+  const { data: cacheRows } = await (supabase as any)
+    .from("talent_match_cache")
+    .select("student_id, score, reason, computed_at")
+    .eq("company_id", user.id)
+
+  type CacheRow = { student_id: string; score: number; reason: string | null; computed_at: string | null }
+  const cacheMap = new Map<string, CacheRow>()
+  for (const row of (cacheRows ?? []) as CacheRow[]) {
+    cacheMap.set(row.student_id, row)
+  }
+
+  // Stale if any student is missing from cache or any entry is older than 24h
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const isCacheStale =
+    !cacheRows ||
+    cacheRows.length < students.length ||
+    (cacheRows as CacheRow[]).some(
+      (row) => !row.computed_at || row.computed_at < twentyFourHoursAgo
+    )
 
   const studentIds = students.map((s) => s.id)
 
@@ -146,15 +177,19 @@ async function getTalentData(): Promise<StudentWithStats[]> {
     }
   }
 
-  return (students as Profile[]).map((s) => ({
+  const enrichedStudents = (students as Profile[]).map((s) => ({
     ...s,
     completedChallenges: completedMap.get(s.id) || 0,
     activeChallenges:    activeMap.get(s.id)    || 0,
+    matchScore:          cacheMap.get(s.id)?.score,
+    matchReason:         cacheMap.get(s.id)?.reason ?? undefined,
   }))
+
+  return { students: enrichedStudents, isCacheStale, companyUserId: user.id }
 }
 
 export default async function TalentPage() {
-  const students = await getTalentData()
+  const { students, isCacheStale, companyUserId } = await getTalentData()
 
   return (
     <div className="space-y-6 p-6">
@@ -194,7 +229,7 @@ export default async function TalentPage() {
           </div>
         </div>
       ) : (
-        <TalentGrid students={students} />
+        <TalentGrid initialStudents={students} isCacheStale={isCacheStale} companyUserId={companyUserId} />
       )}
     </div>
   )

@@ -18,7 +18,7 @@ export default function StudentLayout({
         <header className="portal-header px-4 md:px-6">
           <div className="flex items-center gap-3">
             <div className="md:hidden">
-              <MobileNav title="ZamHack">
+              <MobileNav title="ZamHack" wrapperClassName="student-portal">
                 <StudentSidebar />
               </MobileNav>
             </div>

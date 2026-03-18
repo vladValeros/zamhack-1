@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { toast } from "sonner"
 import { Send, MessageCircle, ArrowLeft } from "lucide-react"
@@ -94,6 +95,8 @@ export function MessagesClient({
 
   useEffect(() => {
     if (!activeConversationId) return
+    setPendingConvId(null)
+
     if (markedReadRef.current.has(activeConversationId)) return
     markedReadRef.current.add(activeConversationId)
     sessionReadIds.add(activeConversationId)
@@ -108,9 +111,13 @@ export function MessagesClient({
   }, [messages])
 
   const handleSelectConversation = (id: string) => {
-    setMobileView("chat")
     setUnreadMap((prev) => ({ ...prev, [id]: 0 }))
-    window.location.href = `/messages?conversation=${id}`
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      router.push(`/messages/${id}`)
+    } else {
+      setPendingConvId(id)
+      startTransition(() => { router.push(`/messages?conversation=${id}`) })
+    }
   }
 
   const handleSend = async () => {
@@ -277,7 +284,6 @@ export function MessagesClient({
             })
           )}
         </div>
-      </div>
 
       {/* ── Chat Panel ───────────────────────────────────────────────
            Mobile:  full width, hidden when list is showing
@@ -422,12 +428,45 @@ export function MessagesClient({
                 }}
                 aria-label="Send message"
               >
-                <Send size={16} />
-              </button>
-            </div>
-          </>
-        )}
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSend()
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  rows={1}
+                  style={{
+                    flex: 1, resize: "none", border: "1px solid #e5e7eb", borderRadius: 12,
+                    padding: "0.75rem 1rem", fontSize: "1rem", fontFamily: "inherit",
+                    outline: "none", lineHeight: 1.5, maxHeight: 120, overflowY: "auto",
+                    transition: "border-color 0.15s", WebkitAppearance: "none",
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = "#ff9b87")}
+                  onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!text.trim() || sending}
+                  style={{
+                    width: 46, height: 46, borderRadius: 12, border: "none", cursor: "pointer",
+                    background: text.trim() && !sending ? "linear-gradient(135deg,#ff9b87,#e8836f)" : "#f3f4f6",
+                    color: text.trim() && !sending ? "#fff" : "#9ca3af",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0, transition: "all 0.15s",
+                  }}
+                  aria-label="Send message"
+                >
+                  <Send size={18} />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }

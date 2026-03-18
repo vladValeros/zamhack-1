@@ -14,9 +14,10 @@ import {
 interface MobileNavProps {
   children: React.ReactNode
   title: string
+  wrapperClassName?: string
 }
 
-export const MobileNav = ({ children, title }: MobileNavProps) => {
+export const MobileNav = ({ children, title, wrapperClassName }: MobileNavProps) => {
   const [open, setOpen] = useState(false)
 
   return (
@@ -31,7 +32,7 @@ export const MobileNav = ({ children, title }: MobileNavProps) => {
         <SheetHeader className="border-b p-4">
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>
-        <div className="p-4" onClick={() => setOpen(false)}>
+        <div className={`p-4 ${wrapperClassName ?? ""}`} onClick={() => setOpen(false)}>
           {children}
         </div>
       </SheetContent>

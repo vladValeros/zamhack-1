@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import type { CSSProperties } from "react"
 import Link from "next/link"
 import {
   Search,
+  Loader2,
   GraduationCap,
   Trophy,
   ChevronLeft,
@@ -14,17 +15,21 @@ import {
   ExternalLink,
   MessageCircle,
   BookOpen,
+  Sparkles,
 } from "lucide-react"
 import type { StudentWithStats } from "./page"
 import { MessageModal } from "./message-modal"
 
 interface TalentGridProps {
-  students: StudentWithStats[]
+  initialStudents: StudentWithStats[]
+  isCacheStale?: boolean
+  companyUserId?: string
 }
 
 const PAGE_SIZE = 9
 
 const SORT_OPTIONS = [
+  { value: "match",     label: "Best Match" },
   { value: "newest",    label: "Newest First" },
   { value: "name",      label: "Name A–Z" },
   { value: "completed", label: "Most Experienced" },
@@ -50,35 +55,169 @@ function avatarGradient(name: string): string {
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length]
 }
 
-export function TalentGrid({ students }: TalentGridProps) {
+export function TalentGrid({ initialStudents, isCacheStale, companyUserId }: TalentGridProps) {
+  const [students, setStudents] = useState<StudentWithStats[]>(initialStudents)
   const [search, setSearch] = useState("")
-  const [sortBy, setSortBy] = useState("newest")
+  const [sortBy, setSortBy] = useState("match")
   const [filterExperience, setFilterExperience] = useState<"all" | "experienced" | "active" | "new">("all")
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
+  const [isScoring, setIsScoring] = useState(false)
 
   // Messaging state
   const [messagingStudent, setMessagingStudent] = useState<StudentWithStats | null>(null)
 
-  const filtered = useMemo(() => {
-    let list = [...students]
+  // Cached baseline scores — updated after the recommend fetch, never by search scoring
+  const cachedScoresRef = useRef<Map<string, number>>(
+    new Map(initialStudents.map((s) => [s.id, s.matchScore ?? 0]))
+  )
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    if (search.trim()) {
+  // Fetch match scores on mount
+  useEffect(() => {
+    async function fetchRecommendations() {
+      try {
+        const res = await fetch("/api/talent/recommend")
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.students && Array.isArray(data.students)) {
+          // Build a map of id -> matchScore
+          const scoreMap = new Map<string, number>()
+          for (const s of data.students) {
+            if (s.id && typeof s.matchScore === "number") {
+              scoreMap.set(s.id, s.matchScore)
+            }
+          }
+          // Merge matchScore into students — only update if new score is higher
+          setStudents((prev) => {
+            const updated = prev.map((student) => {
+              const newScore = scoreMap.get(student.id)
+              if (newScore == null) return student
+              const existing = student.matchScore ?? 0
+              return { ...student, matchScore: Math.max(existing, newScore) }
+            })
+            // Persist merged scores as the new cached baseline
+            for (const s of updated) cachedScoresRef.current.set(s.id, s.matchScore ?? 0)
+            return updated
+          })
+        }
+        console.log("[talent-grid] recommend API response:", data)
+      } catch (err) {
+        console.log("[talent-grid] recommend API error:", err)
+      }
+    }
+    fetchRecommendations()
+  }, [])
+
+  // Debounced skill-based search scoring
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    const trimmed = search.trim()
+
+    if (trimmed.length === 0) {
+      // Revert to cached baseline scores
+      setStudents((prev) =>
+        prev.map((s) => ({ ...s, matchScore: cachedScoresRef.current.get(s.id) ?? s.matchScore }))
+      )
+      return
+    }
+
+    if (trimmed.length < 3) return
+
+    debounceRef.current = setTimeout(async () => {
+      const keywords = trimmed.split(/\s+/).filter(Boolean)
+      setIsScoring(true)
+      try {
+        const res = await fetch("/api/talent/match", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requiredSkills: keywords }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.students && Array.isArray(data.students)) {
+          const scoreMap = new Map<string, number>()
+          for (const s of data.students) {
+            if (s.id && typeof s.matchScore === "number") scoreMap.set(s.id, s.matchScore)
+          }
+          setStudents((prev) =>
+            prev.map((student) => {
+              const newScore = scoreMap.get(student.id)
+              if (newScore == null) return student
+              // Math.max against cached baseline — race-condition safe
+              const cached = cachedScoresRef.current.get(student.id) ?? 0
+              return { ...student, matchScore: Math.max(cached, newScore) }
+            })
+          )
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIsScoring(false)
+      }
+    }, 600)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [search])
+
+  // Fire AI enrichment in the background when cache is stale
+  useEffect(() => {
+    if (!isCacheStale || !companyUserId) return
+    fetch("/api/talent/ai-enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: companyUserId }),
+    }).catch(() => {})
+  }, [isCacheStale, companyUserId])
+
+  // "Top Talent for You" — top 6 students by score (no minimum threshold)
+  const topTalent = useMemo(
+    () =>
+      [...students]
+        .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
+        .slice(0, 6),
+    [students]
+  )
+  const topTalentIds = useMemo(() => new Set(topTalent.map((s) => s.id)), [topTalent])
+
+  const isSearching = search.trim().length > 0
+  const isApiSearch = search.trim().length >= 3
+
+  const filtered = useMemo(() => {
+    // When searching, include all students (including top talent); otherwise exclude top talent
+    let list = isSearching ? [...students] : students.filter((s) => !topTalentIds.has(s.id))
+
+    if (isSearching && !isApiSearch) {
+      // Short query (1–2 chars): use text filter while waiting for API threshold
       const q = search.toLowerCase()
       list = list.filter((s) => {
-        const name   = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase()
-        const bio    = (s.bio || "").toLowerCase()
-        const uni    = (s.university || "").toLowerCase()
-        const degree = (s.degree || "").toLowerCase()
-        return name.includes(q) || bio.includes(q) || uni.includes(q) || degree.includes(q)
+        const name        = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase()
+        const bio         = (s.bio || "").toLowerCase()
+        const uni         = (s.university || "").toLowerCase()
+        const degree      = (s.degree || "").toLowerCase()
+        const matchReason = (s.matchReason || "").toLowerCase()
+        return name.includes(q) || bio.includes(q) || uni.includes(q) || degree.includes(q) || matchReason.includes(q)
       })
     }
+    // For isApiSearch (3+ chars): show all students — skill scoring drives the ranking
 
     if (filterExperience === "experienced") list = list.filter((s) => s.completedChallenges > 0)
     if (filterExperience === "active")      list = list.filter((s) => s.activeChallenges > 0)
     if (filterExperience === "new")         list = list.filter((s) => s.completedChallenges === 0 && s.activeChallenges === 0)
 
+    // When searching, always sort by match score descending
+    if (isSearching) {
+      list.sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
+      return list
+    }
+
     switch (sortBy) {
+      case "match":
+        list.sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
+        break
       case "name":
         list.sort((a, b) => {
           const an = `${a.first_name || ""} ${a.last_name || ""}`.toLowerCase()
@@ -97,7 +236,7 @@ export function TalentGrid({ students }: TalentGridProps) {
     }
 
     return list
-  }, [students, search, sortBy, filterExperience])
+  }, [students, topTalentIds, isSearching, isApiSearch, search, sortBy, filterExperience])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage   = Math.min(page, totalPages)
@@ -109,20 +248,240 @@ export function TalentGrid({ students }: TalentGridProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
 
+      {/* ── Top Talent for You ── */}
+      {topTalent.length > 0 && !isSearching && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Sparkles style={{ width: "1.125rem", height: "1.125rem", color: "var(--cp-coral)" }} />
+            <p style={{ fontWeight: 700, fontSize: "1rem", color: "var(--cp-navy)" }}>
+              Top Talent for You
+            </p>
+            <span style={{
+              padding: "0.125rem 0.625rem",
+              borderRadius: "99px",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              background: "var(--cp-coral-muted)",
+              color: "var(--cp-coral-dark)",
+            }}>
+              {topTalent.length} strong match{topTalent.length !== 1 ? "es" : ""}
+            </span>
+          </div>
+          <div
+            className="talent-grid"
+            style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}
+          >
+            {topTalent.map((student) => {
+              const name          = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "Student"
+              const initials      = getInitials(student.first_name, student.last_name)
+              const gradient      = avatarGradient(name)
+              const headline      = [student.degree, student.university].filter(Boolean).join(" · ")
+              const hasExperience = student.completedChallenges > 0
+
+              return (
+                <div
+                  key={student.id}
+                  style={{
+                    background: "white",
+                    border: "2px solid rgba(255,155,135,0.4)",
+                    borderRadius: "var(--cp-radius-xl, 20px)",
+                    overflow: "hidden",
+                    boxShadow: "0 4px 16px rgba(255,155,135,0.15)",
+                    transition: "all 0.25s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                  onMouseEnter={(e) => {
+                    const el = e.currentTarget
+                    el.style.transform   = "translateY(-3px)"
+                    el.style.boxShadow   = "0 8px 24px rgba(255,155,135,0.25)"
+                    el.style.borderColor = "var(--cp-coral)"
+                  }}
+                  onMouseLeave={(e) => {
+                    const el = e.currentTarget
+                    el.style.transform   = "translateY(0)"
+                    el.style.boxShadow   = "0 4px 16px rgba(255,155,135,0.15)"
+                    el.style.borderColor = "rgba(255,155,135,0.4)"
+                  }}
+                >
+                  <div style={{ height: "4px", background: gradient }} />
+                  <div style={{ padding: "1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "1rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
+                      {student.avatar_url ? (
+                        <img
+                          src={student.avatar_url}
+                          alt={name}
+                          style={{
+                            width: "3rem", height: "3rem", borderRadius: "50%",
+                            objectFit: "cover", flexShrink: 0,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: "3rem", height: "3rem", borderRadius: "50%",
+                          background: gradient, flexShrink: 0,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: "1rem", fontWeight: 700, color: "white",
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                        }}>
+                          {initials}
+                        </div>
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          fontWeight: 700, fontSize: "0.9375rem",
+                          color: "var(--cp-navy)", lineHeight: 1.2,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                          {name}
+                        </p>
+                        {headline && (
+                          <p style={{
+                            fontSize: "0.75rem", color: "var(--cp-text-muted)",
+                            marginTop: "0.2rem", lineHeight: 1.3,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            <GraduationCap style={{ width: "0.75rem", height: "0.75rem", display: "inline", marginRight: "0.25rem", verticalAlign: "middle" }} />
+                            {headline}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {student.bio && (
+                      <p style={{
+                        fontSize: "0.8125rem", color: "var(--cp-text-secondary)",
+                        lineHeight: 1.55,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}>
+                        {student.bio}
+                      </p>
+                    )}
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                        padding: "0.25rem 0.625rem",
+                        borderRadius: "99px",
+                        fontSize: "0.75rem", fontWeight: 600,
+                        background: (student.matchScore ?? 0) >= 40 ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
+                        color: (student.matchScore ?? 0) >= 40 ? "#059669" : "#D97706",
+                      }}>
+                        <Sparkles style={{ width: "0.7rem", height: "0.7rem" }} />
+                        {student.matchScore}% match
+                      </span>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                        padding: "0.25rem 0.625rem",
+                        borderRadius: "99px",
+                        fontSize: "0.75rem", fontWeight: 600,
+                        background: hasExperience ? "var(--cp-coral-muted)" : "var(--cp-border)",
+                        color: hasExperience ? "var(--cp-coral-dark)" : "var(--cp-text-muted)",
+                      }}>
+                        <Trophy style={{ width: "0.7rem", height: "0.7rem" }} />
+                        {student.completedChallenges} completed
+                      </span>
+                      {student.activeChallenges > 0 && (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                          padding: "0.25rem 0.625rem",
+                          borderRadius: "99px",
+                          fontSize: "0.75rem", fontWeight: 600,
+                          background: "rgba(99,102,241,0.1)",
+                          color: "#4F46E5",
+                        }}>
+                          <BookOpen style={{ width: "0.7rem", height: "0.7rem" }} />
+                          {student.activeChallenges} active
+                        </span>
+                      )}
+                    </div>
+                    {student.matchReason && (
+                      <p style={{
+                        fontSize: "0.75rem",
+                        fontStyle: "italic",
+                        color: "var(--cp-text-muted)",
+                        lineHeight: 1.4,
+                        marginTop: "-0.25rem",
+                      }}>
+                        {student.matchReason}
+                      </p>
+                    )}
+                  </div>
+                  <div style={{
+                    padding: "0.875rem 1.25rem",
+                    borderTop: "1px solid var(--cp-border)",
+                    display: "flex",
+                    gap: "0.5rem",
+                    background: "var(--cp-background, #fafafa)",
+                  }}>
+                    <Link
+                      href={`/company/talent/${student.id}`}
+                      className="cp-btn cp-btn-ghost cp-btn-sm"
+                      style={{ flex: 1, justifyContent: "center" }}
+                    >
+                      <ExternalLink style={{ width: "0.875rem", height: "0.875rem" }} />
+                      View Profile
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setMessagingStudent(student)}
+                      className="cp-btn cp-btn-primary cp-btn-sm"
+                      aria-label={`Message ${name}`}
+                      title={`Send message to ${name}`}
+                      style={{ gap: "0.375rem", paddingInline: "0.875rem" }}
+                    >
+                      <MessageCircle style={{ width: "0.875rem", height: "0.875rem" }} />
+                      Message
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <hr style={{ border: "none", borderTop: "1px solid var(--cp-border)", margin: "0.25rem 0" }} />
+        </div>
+      )}
+
       {/* ── Toolbar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
 
         {/* Search */}
-        <div className="cp-search-wrapper" style={{ flex: "1", minWidth: "200px", maxWidth: "400px" }}>
-          <Search className="cp-search-icon" />
-          <input
-            className="cp-search-input"
-            type="text"
-            placeholder="Search by name, school, degree..."
-            value={search}
-            aria-label="Search students"
-            onChange={(e) => { setSearch(e.target.value); resetPage() }}
-          />
+        <div style={{ flex: "1", minWidth: "200px", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <div className="cp-search-wrapper">
+            {isScoring ? (
+              <Loader2
+                className="cp-search-icon"
+                style={{ animation: "spin 1s linear infinite" }}
+              />
+            ) : (
+              <Search className="cp-search-icon" />
+            )}
+            <input
+              className="cp-search-input"
+              type="text"
+              placeholder="Search by name, skill, degree... (3+ chars for smart scoring)"
+              value={search}
+              aria-label="Search students"
+              onChange={(e) => { setSearch(e.target.value); resetPage() }}
+            />
+          </div>
+          {isScoring && (
+            <p style={{ fontSize: "0.7rem", color: "var(--cp-coral-dark)", paddingLeft: "0.25rem", fontWeight: 600 }}>
+              Scoring students by skill match…
+            </p>
+          )}
+          {isSearching && !isScoring && isApiSearch && (
+            <p style={{ fontSize: "0.7rem", color: "var(--cp-text-muted)", paddingLeft: "0.25rem" }}>
+              Showing results scored by skill match
+            </p>
+          )}
+          {isSearching && !isApiSearch && (
+            <p style={{ fontSize: "0.7rem", color: "var(--cp-text-muted)", paddingLeft: "0.25rem" }}>
+              Showing results sorted by match score
+            </p>
+          )}
         </div>
 
         {/* Filter toggle */}
@@ -365,6 +724,23 @@ export function TalentGrid({ students }: TalentGridProps) {
 
                   {/* Stats */}
                   <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {student.matchScore != null && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                        padding: "0.25rem 0.625rem",
+                        borderRadius: "99px",
+                        fontSize: "0.75rem", fontWeight: 600,
+                        background: student.matchScore >= 40 ? "rgba(16,185,129,0.15)" :
+                                    student.matchScore >= 25 ? "rgba(245,158,11,0.15)" :
+                                    "var(--cp-border)",
+                        color: student.matchScore >= 40 ? "#059669" :
+                               student.matchScore >= 25 ? "#D97706" :
+                               "var(--cp-text-muted)",
+                      }}>
+                        <Sparkles style={{ width: "0.7rem", height: "0.7rem" }} />
+                        {student.matchScore}% match
+                      </span>
+                    )}
                     <span style={{
                       display: "inline-flex", alignItems: "center", gap: "0.3rem",
                       padding: "0.25rem 0.625rem",
@@ -391,6 +767,19 @@ export function TalentGrid({ students }: TalentGridProps) {
                       </span>
                     )}
                   </div>
+
+                  {/* AI match reason */}
+                  {student.matchReason && (
+                    <p style={{
+                      fontSize: "0.75rem",
+                      fontStyle: "italic",
+                      color: "var(--cp-text-muted)",
+                      lineHeight: 1.4,
+                      marginTop: "-0.25rem",
+                    }}>
+                      {student.matchReason}
+                    </p>
+                  )}
                 </div>
 
                 {/* Footer Actions */}
@@ -528,6 +917,7 @@ export function TalentGrid({ students }: TalentGridProps) {
       <style>{`
         @media (max-width: 1024px) { .talent-grid { grid-template-columns: repeat(2, 1fr) !important; } }
         @media (max-width: 640px)  { .talent-grid { grid-template-columns: 1fr !important; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
       {/* ── Message Modal ── */}
