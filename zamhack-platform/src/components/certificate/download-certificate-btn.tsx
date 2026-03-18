@@ -100,7 +100,8 @@ export default function DownloadCertificateButton(props: Props) {
         props.type === "winner"
           ? `Winner_${["1st", "2nd", "3rd"][props.rank - 1]}`
           : "Certificate"
-      pdf.save(`ZamHack_${prefix}_${safeName}_${safeChallenge}.pdf`)
+      const { savePdfFile } = await import("@/components/certificate/save-pdf")
+      await savePdfFile(pdf, `ZamHack_${prefix}_${safeName}_${safeChallenge}.pdf`)
     } catch (err) {
       console.error("Certificate generation failed:", err)
     } finally {
