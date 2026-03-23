@@ -54,6 +54,8 @@ interface DashboardData {
   activeChallenges: ActiveChallenge[]
   upcomingDeadlines: UpcomingDeadline[]
   recommendedChallenges: RecommendedChallenge[]
+  xpPoints: number
+  xpRank: string
 }
 
 // ── Data Fetching ─────────────────────────────────────────────────────────
@@ -66,7 +68,7 @@ async function getDashboardData(): Promise<DashboardData> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("first_name, max_active_challenges")
+    .select("first_name, max_active_challenges, xp_points, xp_rank")
     .eq("id", user.id)
     .single()
 
@@ -213,6 +215,8 @@ const activeParts = allParticipations.filter((p) => {
     activeChallenges,
     upcomingDeadlines,
     recommendedChallenges,
+    xpPoints: (profile as any)?.xp_points ?? 0,
+    xpRank: (profile as any)?.xp_rank ?? "beginner",
   }
 }
 
@@ -277,6 +281,8 @@ export default async function StudentDashboardPage() {
     activeChallenges,
     upcomingDeadlines,
     recommendedChallenges,
+    xpPoints,
+    xpRank,
   } = await getDashboardData()
 
   const slotsFree = slotsMax - slotsUsed
@@ -314,7 +320,7 @@ export default async function StudentDashboardPage() {
       </div>
 
       {/* ── Stat Scorecards: 2-col on mobile, 4-col on md+ ────────── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
 
         {/* Slots */}
         <div className="stat-card stat-card-coral flex flex-col gap-2 md:gap-3">
@@ -383,6 +389,20 @@ export default async function StudentDashboardPage() {
               Manage →
             </Link>
           </p>
+        </div>
+
+        {/* XP */}
+        <div className="stat-card flex flex-col gap-2 md:gap-3">
+          <div className="flex items-center justify-between">
+            <p style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#9ca3af" }}>
+              XP
+            </p>
+            <div className="stat-icon" style={{ background: "rgba(234,179,8,0.12)", color: "#b45309", width: 32, height: 32, borderRadius: 9 }}>
+              <Zap style={{ width: "0.875rem", height: "0.875rem" }} />
+            </div>
+          </div>
+          <p className="stat-value" style={{ fontSize: "1.625rem" }}>{xpPoints.toLocaleString()}</p>
+          <p style={{ fontSize: "0.65rem", color: "#9ca3af", textTransform: "capitalize" }}>{xpRank} rank</p>
         </div>
 
       </div>

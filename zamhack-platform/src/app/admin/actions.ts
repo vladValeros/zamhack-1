@@ -526,3 +526,37 @@ export async function createEvaluator(
   revalidatePath("/admin/users")
   return { success: true }
 }
+
+export async function adjustStudentXp(
+  profileId: string,
+  newXpPoints: number
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: "Unauthorized" }
+
+  const { data: adminProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single()
+
+  if (adminProfile?.role !== "admin") return { success: false, error: "Unauthorized" }
+  if (newXpPoints < 0) return { success: false, error: "XP cannot be negative" }
+
+  const newRank =
+    newXpPoints >= 5001 ? "advanced" :
+    newXpPoints >= 2001 ? "intermediate" :
+    "beginner"
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ xp_points: newXpPoints, xp_rank: newRank } as any)
+    .eq("id", profileId)
+
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath("/admin/users")
+  return { success: true }
+}

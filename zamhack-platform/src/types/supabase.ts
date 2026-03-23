@@ -651,6 +651,8 @@ export type Database = {
           university: string | null
           updated_at: string | null
           withdrawal_cooldown_until: string | null
+          xp_points: number
+          xp_rank: string
         }
         Insert: {
           address_barangay?: string | null
@@ -679,6 +681,8 @@ export type Database = {
           university?: string | null
           updated_at?: string | null
           withdrawal_cooldown_until?: string | null
+          xp_points?: number | null
+          xp_rank?: string | null
         }
         Update: {
           address_barangay?: string | null
@@ -707,6 +711,8 @@ export type Database = {
           university?: string | null
           updated_at?: string | null
           withdrawal_cooldown_until?: string | null
+          xp_points?: number | null
+          xp_rank?: string | null
         }
         Relationships: [
           {

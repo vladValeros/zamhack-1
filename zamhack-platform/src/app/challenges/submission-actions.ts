@@ -7,6 +7,7 @@ import { Database } from "@/types/supabase"
 import { autoEvaluateSubmission } from "@/lib/auto-evaluate"
 import { awardChallengeSkills } from "@/lib/award-skills"
 import { type ScoringMode } from "@/lib/scoring-utils"
+import { awardXp } from "@/lib/award-xp"
 
 type SubmissionInsert = Database["public"]["Tables"]["submissions"]["Insert"]
 
@@ -103,7 +104,7 @@ export async function submitMilestone(formData: FormData) {
   // We need to get the challenge_id from the milestone to revalidate the correct path
   const { data: milestone } = await (supabase
     .from("milestones")
-    .select("challenge_id, requires_text, requires_github, requires_url, challenges(is_perpetual, scoring_mode)")
+    .select("challenge_id, requires_text, requires_github, requires_url, challenges(is_perpetual, scoring_mode, difficulty)")
     .eq("id", milestoneId)
     .single() as any)
 
@@ -150,7 +151,43 @@ export async function submitMilestone(formData: FormData) {
 
     if (submittedCount === totalMilestones && totalMilestones !== null && totalMilestones > 0) {
       const challengeScoringMode = ((milestone?.challenges as any)?.scoring_mode ?? "company_only") as ScoringMode
+
+      // Award skill tags — unchanged, do not remove
       await awardChallengeSkills(supabase, milestone.challenge_id, user.id, challengeScoringMode)
+
+      // Fetch evaluations to compute final score for XP
+      const { data: participantForXp } = await supabase
+        .from("challenge_participants")
+        .select(`
+          submissions (
+            evaluations (
+              score,
+              profiles ( role )
+            )
+          )
+        `)
+        .eq("challenge_id", milestone.challenge_id)
+        .eq("user_id", user.id)
+        .single()
+
+      const allEvalsXp = ((participantForXp as any)?.submissions ?? [])
+        .flatMap((s: any) => s.evaluations ?? [])
+
+      const companyEvalXp = allEvalsXp.find(
+        (e: any) =>
+          e.profiles?.role === "company_admin" || e.profiles?.role === "company_member"
+      )
+      const evaluatorEvalXp = allEvalsXp.find((e: any) => e.profiles?.role === "evaluator")
+
+      const { getFinalScore } = await import("@/lib/scoring-utils")
+      const finalScoreXp = getFinalScore({
+        companyScore: companyEvalXp?.score ?? null,
+        evaluatorScore: evaluatorEvalXp?.score ?? null,
+        scoringMode: challengeScoringMode,
+      }) ?? 0
+
+      const challengeDifficultyXp = (milestone?.challenges as any)?.difficulty ?? "beginner"
+      await awardXp(supabase, user.id, challengeDifficultyXp, finalScoreXp)
     }
   }
 

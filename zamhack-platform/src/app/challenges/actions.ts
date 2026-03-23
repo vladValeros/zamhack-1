@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { getFinalScore, type ScoringMode } from "@/lib/scoring-utils"
 import { checkParticipationGate } from "@/lib/participation-gate"
 import { awardChallengeSkills } from "@/lib/award-skills"
+import { awardXp } from "@/lib/award-xp"
 import { computeRankedResults, shouldUseRankedMode, type EvaluatorScore } from "@/lib/rank-scoring"
 
 // --- ACTION: JOIN CHALLENGE ---
@@ -518,8 +519,52 @@ export async function closeChallenge(challengeId: string, forceClose = false): P
     .eq("challenge_id", challengeId)
     .eq("status", "active")
 
+  // Fetch challenge difficulty once, used for XP multiplier
+  const { data: challengeForXp } = await supabase
+    .from("challenges")
+    .select("difficulty")
+    .eq("id", challengeId)
+    .single()
+
+  const challengeDifficulty = (challengeForXp as any)?.difficulty ?? "beginner"
+
   for (const p of activeParticipants ?? []) {
-    if (p.user_id) await awardChallengeSkills(supabase, challengeId, p.user_id, scoringMode)
+    if (!p.user_id) continue
+
+    // Award skill tags — unchanged, do not remove
+    await awardChallengeSkills(supabase, challengeId, p.user_id, scoringMode)
+
+    // Compute this participant's final score (0–100) for XP calculation
+    const { data: participantRow } = await supabase
+      .from("challenge_participants")
+      .select(`
+        submissions (
+          evaluations (
+            score,
+            profiles ( role )
+          )
+        )
+      `)
+      .eq("challenge_id", challengeId)
+      .eq("user_id", p.user_id)
+      .single()
+
+    const allEvals = ((participantRow as any)?.submissions ?? [])
+      .flatMap((s: any) => s.evaluations ?? [])
+
+    const companyEval = allEvals.find(
+      (e: any) =>
+        e.profiles?.role === "company_admin" || e.profiles?.role === "company_member"
+    )
+    const evaluatorEval = allEvals.find((e: any) => e.profiles?.role === "evaluator")
+
+    const finalScore = getFinalScore({
+      companyScore: companyEval?.score ?? null,
+      evaluatorScore: evaluatorEval?.score ?? null,
+      scoringMode,
+    }) ?? 0
+
+    await awardXp(supabase, p.user_id, challengeDifficulty, finalScore)
   }
 
   revalidatePath(`/challenges/${challengeId}`)

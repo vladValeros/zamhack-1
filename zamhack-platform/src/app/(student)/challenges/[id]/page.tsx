@@ -455,14 +455,24 @@ export default async function ChallengePage({
                       Next eligible: {new Date(gateStatus.nextEligibleAt).toLocaleDateString()}
                     </span>
                   </Button>
-                ) : !gateStatus.allowed ? (
-                  /* CASE 7b: Skill gate locked */
+                ) : !gateStatus.allowed && gateStatus.reason === "xp_rank_gate" ? (
+                  /* CASE 7b: XP rank gate locked */
                   <Button asChild size="lg" variant="outline" className="w-full gap-2">
                     <Link
-                      href={`/challenges/${challenge.id}/skill-gate?tier=${gateStatus.requiredTier}&difficulty=${gateStatus.difficulty}`}
+                      href={`/challenges/${challenge.id}/rank-gate?required=${(gateStatus as any).requiredRank}&current=${(gateStatus as any).currentRank}&difficulty=${challenge.difficulty}`}
                     >
                       <Lock size={16} />
-                      Requires {gateStatus.requiredTier} credential
+                      Requires {(gateStatus as any).requiredRank} rank
+                    </Link>
+                  </Button>
+                ) : !gateStatus.allowed ? (
+                  /* CASE 7c: Skill gate locked (legacy) */
+                  <Button asChild size="lg" variant="outline" className="w-full gap-2">
+                    <Link
+                      href={`/challenges/${challenge.id}/skill-gate?tier=${(gateStatus as any).requiredTier}&difficulty=${(gateStatus as any).difficulty}`}
+                    >
+                      <Lock size={16} />
+                      Requires {(gateStatus as any).requiredTier} credential
                     </Link>
                   </Button>
                 ) : (

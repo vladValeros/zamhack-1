@@ -4,6 +4,7 @@ import { SkillsSection } from "@/components/profile/skills-section"
 import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
 import { Github, Linkedin, FileText, GraduationCap, BookOpen, ExternalLink } from "lucide-react"
+import { XpCard } from "@/components/profile/xp-card"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
@@ -150,6 +151,12 @@ export default async function ProfilePage() {
 
         {/* ── Left column ────────────────────────────────────────────── */}
         <div className="pf-col">
+
+          {/* XP Rank */}
+          <XpCard
+            xpPoints={(profile as any)?.xp_points ?? 0}
+            xpRank={(profile as any)?.xp_rank ?? "beginner"}
+          />
 
           {/* About Me */}
           <div className="pf-card">

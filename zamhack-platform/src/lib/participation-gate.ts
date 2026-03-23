@@ -1,7 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js"
 
-type Tier = "beginner" | "intermediate" | "advanced"
-
 export type GateResult =
   | { allowed: true }
   | {
@@ -16,6 +14,12 @@ export type GateResult =
       reason: "advanced_limit"
       nextEligibleAt: string
       effectiveLimit: number
+    }
+  | {
+      allowed: false
+      reason: "xp_rank_gate"
+      requiredRank: "intermediate" | "advanced"
+      currentRank: string
     }
 
 export async function checkParticipationGate(
@@ -62,24 +66,23 @@ export async function checkParticipationGate(
       return { allowed: true }
     }
 
-    // Check if student has any of THIS challenge's specific skills at advanced tier
-    const { data: matchingAdvanced } = await (supabase
-      .from("student_earned_skills")
-      .select("skill_id")
-      .eq("profile_id", profileId)
-      .in("skill_id", challengeSkillIds)
-      .eq("tier", "advanced") as any)
+    // Detect advanced students via xp_rank instead of earned skill tiers
+    const { data: profileForGuard } = await supabase
+      .from("profiles")
+      .select("xp_rank")
+      .eq("id", profileId)
+      .single()
 
-    console.log("[gate] matchingAdvanced skills:", matchingAdvanced)
-    if (!matchingAdvanced || matchingAdvanced.length === 0) {
-      console.log("[gate] EXIT: student has no advanced tier for this challenge's skills — allowed")
+    const guardRank = (profileForGuard as any)?.xp_rank ?? "beginner"
+    console.log("[gate] guardRank:", guardRank)
+    if (guardRank !== "advanced") {
+      console.log("[gate] EXIT: not an advanced-rank student — guardrail does not apply")
       return { allowed: true }
     }
 
-    // Get the specific skill IDs the student holds at advanced (that match this challenge)
-    const advancedSkillIds: string[] = (matchingAdvanced as any[])
-      .map((s: any) => s.skill_id)
-      .filter(Boolean)
+    // Advanced-rank student — check rolling 7-day beginner join count for this challenge's skills
+    // Get the specific skill IDs from this challenge to scope the counter
+    const advancedSkillIds: string[] = challengeSkillIds
 
     // Find all challenge IDs that have any of those same advanced skills
     const { data: relevantChallengeSkills } = await (supabase
@@ -136,32 +139,32 @@ export async function checkParticipationGate(
     return { allowed: true }
   }
 
-  const requiredSkillIds: string[] = (challenge.challenge_skills ?? [])
-    .map((cs: any) => cs.skill_id)
-    .filter(Boolean)
+  // XP rank gate — replaces the old skill-tier gate for intermediate and advanced challenges
+  const { data: studentProfileGate } = await supabase
+    .from("profiles")
+    .select("xp_rank")
+    .eq("id", profileId)
+    .single()
 
-  if (requiredSkillIds.length === 0) return { allowed: true } // no skills defined = no gate
+  const studentXpRank = (studentProfileGate as any)?.xp_rank ?? "beginner"
 
-  const requiredTier = difficulty === "advanced" ? "intermediate" : "beginner"
-  const allowedTiers: Tier[] = difficulty === "advanced"
-    ? ["intermediate", "advanced"]
-    : ["beginner", "intermediate", "advanced"]
-
-  const { data: earnedMatch } = await (supabase
-    .from("student_earned_skills")
-    .select("skill_id, tier")
-    .eq("profile_id", profileId)
-    .in("skill_id", requiredSkillIds)
-    .in("tier", allowedTiers)
-    .limit(1) as any)
-
-  if (earnedMatch && earnedMatch.length > 0) return { allowed: true }
-
-  return {
-    allowed: false,
-    reason: "skill_gate",
-    requiredTier: requiredTier as "beginner" | "intermediate",
-    difficulty,
-    missingSkillIds: requiredSkillIds,
+  if (difficulty === "intermediate" && studentXpRank === "beginner") {
+    return {
+      allowed: false,
+      reason: "xp_rank_gate",
+      requiredRank: "intermediate",
+      currentRank: studentXpRank,
+    }
   }
+
+  if (difficulty === "advanced" && studentXpRank !== "advanced") {
+    return {
+      allowed: false,
+      reason: "xp_rank_gate",
+      requiredRank: "advanced",
+      currentRank: studentXpRank,
+    }
+  }
+
+  return { allowed: true }
 }

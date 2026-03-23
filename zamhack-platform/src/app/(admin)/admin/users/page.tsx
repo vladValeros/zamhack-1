@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { Database } from "@/types/supabase"
 import { UserActionsCell } from "./user-actions-cell"
 import { GrantSkillButton } from "./grant-skill-button"
+import { AdjustXpButton } from "./adjust-xp-button"
 import { Users, GraduationCap, Building2, ShieldCheck, Search, ClipboardList } from "lucide-react"
 import "@/app/(admin)/admin.css"
 import CreateEvaluatorButton from "./create-evaluator-button"
@@ -376,6 +377,7 @@ export default async function AdminUsersPage({
 
                         <td style={{ textAlign: "right" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.375rem" }}>
+                            <AdjustXpButton userId={profile.id} role={profile.role} currentXp={(profile as any).xp_points ?? 0} currentRank={(profile as any).xp_rank ?? "beginner"} />
                             <GrantSkillButton userId={profile.id} role={profile.role} skills={skillsList} />
                             <UserActionsCell userId={profile.id} status={userProfile.status} />
                           </div>
