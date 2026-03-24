@@ -477,7 +477,7 @@ export default async function ChallengePage({
                   </Button>
                 ) : (
                   /* CASE 8: Free entry */
-                  <JoinButton challengeId={id} isFull />
+                  <JoinButton challengeId={id} isFull difficulty={challenge.difficulty ?? undefined} />
                 )}
               </div>
             </CardContent>

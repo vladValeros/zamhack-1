@@ -20,9 +20,10 @@ import {
 interface JoinButtonProps {
   challengeId: string
   isFull?: boolean // This is the prop that was missing
+  difficulty?: string
 }
 
-export function JoinButton({ challengeId, isFull = false }: JoinButtonProps) {
+export function JoinButton({ challengeId, isFull = false, difficulty = "beginner" }: JoinButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [overlapWarning, setOverlapWarning] = useState<string | null>(null)
   const router = useRouter()
@@ -41,6 +42,11 @@ export function JoinButton({ challengeId, isFull = false }: JoinButtonProps) {
         return
       } else if (result.error === "skill_gate") {
         router.push(`/challenges/${challengeId}/skill-gate?tier=${result.requiredTier}&difficulty=${result.difficulty}`)
+        return
+      } else if (result.error === "xp_rank_gate") {
+        router.push(
+          `/challenges/${challengeId}/rank-gate?required=${(result as any).requiredRank}&current=${(result as any).currentRank}&difficulty=${difficulty}`
+        )
         return
       } else if (result.error) {
         toast.error(result.error)

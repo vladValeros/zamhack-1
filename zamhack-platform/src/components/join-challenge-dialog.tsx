@@ -56,7 +56,20 @@ export const JoinChallengeDialog = ({
     try {
       const result = await joinChallenge(challengeId, teamId)
 
-      if (result.error) {
+      if (result.error === "advanced_limit") {
+        const date = new Date((result as any).nextEligibleAt).toLocaleDateString()
+        setToast({ message: `Weekly limit reached — eligible again on ${date}`, type: "error" })
+      } else if (result.error === "skill_gate") {
+        setOpen(false)
+        router.push(
+          `/challenges/${challengeId}/skill-gate?tier=${(result as any).requiredTier}&difficulty=${(result as any).difficulty}`
+        )
+      } else if (result.error === "xp_rank_gate") {
+        setOpen(false)
+        router.push(
+          `/challenges/${challengeId}/rank-gate?required=${(result as any).requiredRank}&current=${(result as any).currentRank}`
+        )
+      } else if (result.error) {
         setToast({ message: result.error, type: "error" })
       } else {
         setToast({ message: "Successfully joined!", type: "success" })

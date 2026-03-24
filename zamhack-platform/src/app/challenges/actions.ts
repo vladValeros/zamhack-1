@@ -109,6 +109,20 @@ export async function joinChallenge(challengeId: string, teamId?: string, forceJ
         effectiveLimit: gateResult.effectiveLimit,
       }
     }
+
+    // ✅ FIX: Handle xp_rank_gate before falling through to skill_gate.
+    // Without this branch, TypeScript cannot narrow the union and errors on
+    // gateResult.missingSkillIds (which does not exist on xp_rank_gate).
+    if (gateResult.reason === "xp_rank_gate") {
+      return {
+        error: "xp_rank_gate",
+        requiredRank: gateResult.requiredRank,
+        currentRank: gateResult.currentRank,
+      }
+    }
+
+    // At this point TypeScript knows the only remaining variant is skill_gate,
+    // so missingSkillIds, requiredTier, and difficulty are all safe to access.
     return {
       error: "skill_gate",
       requiredSkillIds: gateResult.missingSkillIds,
