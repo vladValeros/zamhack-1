@@ -4,6 +4,13 @@ export interface EvaluatorScore {
   rawScore: number // 0–100
 }
 
+export interface EvaluatorBreakdown {
+  evaluatorId: string
+  evaluatorName: string  // populated by the caller via evaluatorNames map
+  rawScore: number
+  rankAssigned: number   // the rank this evaluator assigned to this participant
+}
+
 export interface RankedParticipant {
   participantId: string
   rankSum: number // Layer 1: sum of ranks across all evaluators
@@ -14,7 +21,14 @@ export interface RankedParticipant {
   tiebreakerUsed: "none" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
 }
 
-function computeRankSums(scores: EvaluatorScore[]): Map<string, number> {
+export interface RankedParticipantWithBreakdown extends RankedParticipant {
+  perEvaluatorBreakdown: EvaluatorBreakdown[]
+}
+
+function computeRankSums(scores: EvaluatorScore[]): {
+  rankSumMap: Map<string, number>
+  perEvaluatorRankMap: Map<string, Map<string, number>>
+} {
   const byEvaluator = new Map<string, EvaluatorScore[]>()
   for (const s of scores) {
     const group = byEvaluator.get(s.evaluatorId) ?? []
@@ -23,9 +37,12 @@ function computeRankSums(scores: EvaluatorScore[]): Map<string, number> {
   }
 
   const rankSumMap = new Map<string, number>()
+  // evaluatorId → (participantId → rankAssigned)
+  const perEvaluatorRankMap = new Map<string, Map<string, number>>()
 
-  for (const [, evalScores] of byEvaluator) {
+  for (const [evaluatorId, evalScores] of byEvaluator) {
     const sorted = [...evalScores].sort((a, b) => b.rawScore - a.rawScore)
+    const evalRankMap = new Map<string, number>()
 
     // Assign average ranks for ties
     let i = 0
@@ -39,12 +56,15 @@ function computeRankSums(scores: EvaluatorScore[]): Map<string, number> {
       for (let k = i; k < j; k++) {
         const pid = sorted[k].participantId
         rankSumMap.set(pid, (rankSumMap.get(pid) ?? 0) + avgRank)
+        evalRankMap.set(pid, avgRank)
       }
       i = j
     }
+
+    perEvaluatorRankMap.set(evaluatorId, evalRankMap)
   }
 
-  return rankSumMap
+  return { rankSumMap, perEvaluatorRankMap }
 }
 
 function computeNormalizedScores(scores: EvaluatorScore[]): Map<string, number> {
@@ -105,7 +125,7 @@ export function computeRankedResults(params: {
 }): RankedParticipant[] {
   const { evaluatorScores, companyScores, chiefEvaluatorId } = params
 
-  const rankSumMap = computeRankSums(evaluatorScores)
+  const { rankSumMap } = computeRankSums(evaluatorScores)
   const normalizedMap = computeNormalizedScores(evaluatorScores)
 
   // Collect unique participant IDs
@@ -228,6 +248,131 @@ export function computeRankedResults(params: {
   // The first in each non-tied run should reflect what broke the tie with the previous group
   // This is already handled above — tiebreakerUsed on a non-tied participant reflects
   // what differentiator separated it from its predecessor. The first overall gets "none".
+
+  return participants
+}
+
+export function computeRankedResultsWithBreakdown(params: {
+  evaluatorScores: EvaluatorScore[]
+  companyScores: Map<string, number | null>
+  chiefEvaluatorId: string | null
+  evaluatorNames?: Map<string, string>
+}): RankedParticipantWithBreakdown[] {
+  const { evaluatorScores, companyScores, chiefEvaluatorId, evaluatorNames } = params
+
+  const { rankSumMap, perEvaluatorRankMap } = computeRankSums(evaluatorScores)
+  const normalizedMap = computeNormalizedScores(evaluatorScores)
+
+  // Build a lookup: evaluatorId → (participantId → rawScore)
+  const rawScoreMap = new Map<string, Map<string, number>>()
+  for (const s of evaluatorScores) {
+    const evalMap = rawScoreMap.get(s.evaluatorId) ?? new Map<string, number>()
+    evalMap.set(s.participantId, s.rawScore)
+    rawScoreMap.set(s.evaluatorId, evalMap)
+  }
+
+  // Collect unique participant IDs
+  const participantIds = [...new Set(evaluatorScores.map((s) => s.participantId))]
+
+  const participants: RankedParticipantWithBreakdown[] = participantIds.map((pid) => {
+    const breakdown: EvaluatorBreakdown[] = []
+    for (const [evaluatorId, evalRankMap] of perEvaluatorRankMap) {
+      const rawScore = rawScoreMap.get(evaluatorId)?.get(pid)
+      if (rawScore === undefined) continue
+      breakdown.push({
+        evaluatorId,
+        evaluatorName: evaluatorNames?.get(evaluatorId) ?? evaluatorId,
+        rawScore,
+        rankAssigned: evalRankMap.get(pid) ?? 0,
+      })
+    }
+    return {
+      participantId: pid,
+      rankSum: rankSumMap.get(pid) ?? 0,
+      normalizedScoreAvg: normalizedMap.get(pid) ?? 0,
+      companyScore: companyScores.get(pid) ?? null,
+      finalRank: 0,
+      isTied: false,
+      tiebreakerUsed: "none",
+      perEvaluatorBreakdown: breakdown,
+    }
+  })
+
+  // Pre-compute chief evaluator ranks if applicable
+  const chiefRankMap = new Map<string, number>()
+  if (chiefEvaluatorId !== null) {
+    const chiefScores = evaluatorScores.filter((s) => s.evaluatorId === chiefEvaluatorId)
+    if (chiefScores.length > 0) {
+      const ranks = rankWithinEvaluator(chiefScores)
+      for (const [pid, rank] of ranks) {
+        chiefRankMap.set(pid, rank)
+      }
+    }
+  }
+
+  // Sort with full priority chain (identical to computeRankedResults)
+  participants.sort((a, b) => {
+    if (a.rankSum !== b.rankSum) return a.rankSum - b.rankSum
+    if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return b.normalizedScoreAvg - a.normalizedScoreAvg
+    const aCompany = a.companyScore ?? -Infinity
+    const bCompany = b.companyScore ?? -Infinity
+    if (aCompany !== bCompany) return bCompany - aCompany
+    if (chiefEvaluatorId !== null) {
+      const aChief = chiefRankMap.get(a.participantId) ?? Infinity
+      const bChief = chiefRankMap.get(b.participantId) ?? Infinity
+      if (aChief !== bChief) return aChief - bChief
+    }
+    return 0
+  })
+
+  type TiebreakerReason = "none" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
+
+  function getTiebreakerBetween(a: RankedParticipant, b: RankedParticipant): TiebreakerReason {
+    if (a.rankSum !== b.rankSum) return "none"
+    if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return "normalized_score"
+    const aCompany = a.companyScore ?? -Infinity
+    const bCompany = b.companyScore ?? -Infinity
+    if (aCompany !== bCompany) return "company_score"
+    if (chiefEvaluatorId !== null) {
+      const aChief = chiefRankMap.get(a.participantId) ?? Infinity
+      const bChief = chiefRankMap.get(b.participantId) ?? Infinity
+      if (aChief !== bChief) return "chief_evaluator"
+    }
+    return "manual"
+  }
+
+  const n = participants.length
+  let i = 0
+  let rankCounter = 1
+  while (i < n) {
+    let j = i
+    while (j + 1 < n && getTiebreakerBetween(participants[j], participants[j + 1]) === "manual") {
+      j++
+    }
+
+    if (j === i) {
+      participants[i].finalRank = rankCounter
+      participants[i].isTied = false
+      if (i + 1 < n && participants[i + 1].rankSum === participants[i].rankSum) {
+        participants[i].tiebreakerUsed = getTiebreakerBetween(participants[i], participants[i + 1])
+      } else if (i > 0 && participants[i - 1].rankSum === participants[i].rankSum) {
+        participants[i].tiebreakerUsed = getTiebreakerBetween(participants[i - 1], participants[i])
+      } else {
+        participants[i].tiebreakerUsed = "none"
+      }
+      rankCounter++
+    } else {
+      const groupRank = rankCounter
+      for (let k = i; k <= j; k++) {
+        participants[k].finalRank = groupRank
+        participants[k].isTied = true
+        participants[k].tiebreakerUsed = "manual"
+      }
+      rankCounter += j - i + 1
+    }
+
+    i = j + 1
+  }
 
   return participants
 }

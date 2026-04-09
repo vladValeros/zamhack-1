@@ -7,17 +7,27 @@ import { Progress } from "@/components/ui/progress"
 import { Database } from "@/types/supabase"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Lock } from "lucide-react"
+import { Lock, Trophy } from "lucide-react"
 import { submitChallengeForApproval, getTiedParticipantDetails } from "@/app/challenges/actions"
+import { computeRankedResultsWithBreakdown, shouldUseRankedMode, EvaluatorScore, RankedParticipantWithBreakdown } from "@/lib/rank-scoring"
 import { CloseChallengeButton } from "@/components/challenges/close-challenge-button"
 import { RecalculateWinnersButton } from "@/components/challenges/recalculate-winners-button"
 import { ResolveTieModal } from "@/components/challenges/resolve-tie-modal"
+import { RankingBreakdown } from "@/components/challenges/ranking-breakdown"
 type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
 type Participant = Database["public"]["Tables"]["challenge_participants"]["Row"]
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 type Milestone = Database["public"]["Tables"]["milestones"]["Row"]
 type Submission = Database["public"]["Tables"]["submissions"]["Row"]
 type Evaluation = Database["public"]["Tables"]["evaluations"]["Row"]
+
+export interface RankingBreakdownResult {
+  rankedParticipants: RankedParticipantWithBreakdown[]
+  evaluatorList: Array<{ evaluatorId: string; evaluatorName: string; isChief: boolean }>
+  participantNames: Map<string, string>   // participantId (user_id) → display name
+  scoringMode: string
+  isRankedMode: boolean
+}
 
 interface ParticipantWithProfile extends Participant {
   profile: Profile | null
@@ -47,6 +57,156 @@ interface ChallengeManagementData {
     total: number
     percentage: number
   }>
+}
+
+async function getRankingBreakdownData(challengeId: string): Promise<RankingBreakdownResult | null> {
+  const supabase = await createClient()
+
+  // a. Fetch scoring_mode from challenges
+  const { data: challengeRow, error: challengeErr } = await supabase
+    .from("challenges")
+    .select("scoring_mode")
+    .eq("id", challengeId)
+    .single()
+
+  if (challengeErr || !challengeRow) return null
+
+  const scoringMode: string = challengeRow.scoring_mode ?? "company_only"
+
+  // b. Fetch challenge_evaluators with profile join
+  const { data: evaluatorRows } = await (supabase
+    .from("challenge_evaluators")
+    .select("evaluator_id, is_chief, profiles(first_name, last_name)")
+    .eq("challenge_id", challengeId) as any)
+
+  const evaluatorRowList: any[] = evaluatorRows ?? []
+
+  const evaluatorNames = new Map<string, string>()
+  const evaluatorList: Array<{ evaluatorId: string; evaluatorName: string; isChief: boolean }> = []
+  let chiefEvaluatorId: string | null = null
+
+  for (const row of evaluatorRowList) {
+    const firstName: string = row.profiles?.first_name ?? ""
+    const lastName: string = row.profiles?.last_name ?? ""
+    const name = `${firstName} ${lastName}`.trim() || row.evaluator_id
+    evaluatorNames.set(row.evaluator_id, name)
+    evaluatorList.push({
+      evaluatorId: row.evaluator_id,
+      evaluatorName: name,
+      isChief: row.is_chief === true,
+    })
+    if (row.is_chief === true) {
+      chiefEvaluatorId = row.evaluator_id
+    }
+  }
+
+  const evaluatorCount = evaluatorRowList.length
+
+  // c. Check shouldUseRankedMode — early return if not applicable
+  const isRankedMode = shouldUseRankedMode({
+    scoringMode: scoringMode as "company_only" | "evaluator_only" | "average",
+    evaluatorCount,
+  })
+
+  if (!isRankedMode) {
+    return {
+      rankedParticipants: [],
+      evaluatorList,
+      participantNames: new Map(),
+      scoringMode,
+      isRankedMode: false,
+    }
+  }
+
+  // d. Fetch active participants with profile join
+  const { data: participantRows } = await (supabase
+    .from("challenge_participants")
+    .select("id, user_id, profiles(first_name, last_name)")
+    .eq("challenge_id", challengeId)
+    .eq("status", "active") as any)
+
+  const participantRowList: any[] = participantRows ?? []
+  const participantNames = new Map<string, string>()
+  // challenge_participants.id → user_id
+  const participantIdToUserId = new Map<string, string>()
+
+  for (const row of participantRowList) {
+    if (!row.user_id) continue
+    const firstName: string = row.profiles?.first_name ?? ""
+    const lastName: string = row.profiles?.last_name ?? ""
+    const name = `${firstName} ${lastName}`.trim() || row.user_id
+    participantNames.set(row.user_id, name)
+    participantIdToUserId.set(row.id, row.user_id)
+  }
+
+  // e. Fetch non-draft evaluations via join chain
+  const { data: evalRows } = await (supabase
+    .from("evaluations")
+    .select(`
+      reviewer_id,
+      score,
+      is_draft,
+      profiles(role),
+      submissions(
+        participant_id,
+        milestones(challenge_id)
+      )
+    `)
+    .eq("is_draft", false) as any)
+
+  const allEvals: any[] = evalRows ?? []
+
+  // Filter to only evaluations belonging to this challenge
+  const challengeEvals = allEvals.filter((e: any) => {
+    return e.submissions?.milestones?.challenge_id === challengeId
+  })
+
+  // f. Build EvaluatorScore[]
+  const evaluatorScores: EvaluatorScore[] = []
+  // g. Build companyScores Map — init all active participants to null
+  const companyScores = new Map<string, number | null>()
+  for (const userId of participantNames.keys()) {
+    companyScores.set(userId, null)
+  }
+
+  for (const e of challengeEvals) {
+    const role: string | null = e.profiles?.role ?? null
+    const participantRowId: string | null = e.submissions?.participant_id ?? null
+    const rawScore: number | null = e.score ?? null
+    const reviewerId: string | null = e.reviewer_id ?? null
+
+    if (!participantRowId || rawScore === null || !reviewerId) continue
+
+    const userId = participantIdToUserId.get(participantRowId)
+    if (!userId) continue
+
+    if (role === "evaluator") {
+      evaluatorScores.push({
+        evaluatorId: reviewerId,
+        participantId: userId,
+        rawScore,
+      })
+    } else if (role === "company_admin" || role === "company_member") {
+      companyScores.set(userId, rawScore)
+    }
+  }
+
+  // h. Call computeRankedResultsWithBreakdown
+  const rankedParticipants = computeRankedResultsWithBreakdown({
+    evaluatorScores,
+    companyScores,
+    chiefEvaluatorId,
+    evaluatorNames,
+  })
+
+  // i. Return assembled result
+  return {
+    rankedParticipants,
+    evaluatorList,
+    participantNames,
+    scoringMode,
+    isRankedMode: true,
+  }
 }
 
 async function getChallengeManagementData(
@@ -293,6 +453,8 @@ export default async function ChallengeManagementPage({
   const { tiedWinners } = isClosed
     ? await getTiedParticipantDetails(id)
     : { tiedWinners: [] }
+
+  const rankingData = isClosed ? await getRankingBreakdownData(id) : null
   const hasTies = tiedWinners.length > 0
 
   return (
@@ -378,6 +540,12 @@ export default async function ChallengeManagementPage({
           <TabsTrigger value="submissions">
             Submissions ({stats.totalSubmissions})
           </TabsTrigger>
+          {isClosed && (
+            <TabsTrigger value="rankings">
+              <Trophy className="h-4 w-4 mr-2" />
+              Rankings
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Overview Tab */}
@@ -562,6 +730,18 @@ export default async function ChallengeManagementPage({
             </CardContent>
           </Card>
         </TabsContent>
+
+        {isClosed && rankingData && (
+          <TabsContent value="rankings">
+            <RankingBreakdown
+              rankedParticipants={rankingData.rankedParticipants}
+              evaluatorList={rankingData.evaluatorList}
+              participantNames={Object.fromEntries(rankingData.participantNames)}
+              scoringMode={rankingData.scoringMode}
+              isRankedMode={rankingData.isRankedMode}
+            />
+          </TabsContent>
+        )}
 
       </Tabs>
     </div>

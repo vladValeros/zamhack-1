@@ -992,3 +992,252 @@ export async function getTiedParticipantDetails(challengeId: string): Promise<{
 
   return { tiedWinners }
 }
+
+// --- ACTION: GET CHALLENGE TABULATION ---
+export async function getChallengeTabulation(challengeId: string): Promise<{
+  scoringMode: string
+  isRankedMode: boolean
+  evaluators: Array<{
+    evaluatorId: string
+    evaluatorName: string
+    isChief: boolean
+  }>
+  rows: Array<{
+    participantId: string
+    participantName: string
+    rawScores: Record<string, number | null>
+    companyScore: number | null
+    rankPerEvaluator: Record<string, number | null>
+    rankSum: number | null
+    normalizedScoreAvg: number | null
+    finalRank: number | null
+    isTied: boolean
+    tiebreakerUsed: string
+  }>
+}> {
+  const empty = (scoringMode: string) => ({
+    scoringMode,
+    isRankedMode: false as const,
+    evaluators: [] as Array<{ evaluatorId: string; evaluatorName: string; isChief: boolean }>,
+    rows: [] as Array<{
+      participantId: string
+      participantName: string
+      rawScores: Record<string, number | null>
+      companyScore: number | null
+      rankPerEvaluator: Record<string, number | null>
+      rankSum: number | null
+      normalizedScoreAvg: number | null
+      finalRank: number | null
+      isTied: boolean
+      tiebreakerUsed: string
+    }>,
+  })
+
+  const supabase = await createClient()
+
+  // 1. Auth check
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return empty("company_only")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, organization_id")
+    .eq("id", user.id)
+    .single()
+
+  if (!profile) return empty("company_only")
+
+  // 2. Fetch challenge scoring_mode and organization_id
+  const { data: challenge } = await supabase
+    .from("challenges")
+    .select("scoring_mode, organization_id")
+    .eq("id", challengeId)
+    .single()
+
+  if (!challenge) return empty("company_only")
+
+  // Authorize: admin or company member/admin matching the challenge org
+  const isAdmin = profile.role === "admin"
+  const isCompanyMember =
+    (profile.role === "company_admin" || profile.role === "company_member") &&
+    profile.organization_id === challenge.organization_id
+
+  if (!isAdmin && !isCompanyMember) return empty(challenge.scoring_mode ?? "company_only")
+
+  const scoringMode = (challenge.scoring_mode ?? "company_only") as "company_only" | "evaluator_only" | "average"
+
+  // 3. Fetch evaluators with profile names (explicit FK to avoid PGRST201)
+  const { data: evaluatorRows } = await (supabase
+    .from("challenge_evaluators")
+    .select(`
+      evaluator_id,
+      is_chief,
+      profiles!challenge_evaluators_evaluator_id_fkey (first_name, last_name)
+    `)
+    .eq("challenge_id", challengeId) as any)
+
+  const evaluators: Array<{ evaluatorId: string; evaluatorName: string; isChief: boolean }> =
+    ((evaluatorRows ?? []) as any[]).map((r: any) => ({
+      evaluatorId: r.evaluator_id as string,
+      evaluatorName:
+        `${r.profiles?.first_name ?? ""} ${r.profiles?.last_name ?? ""}`.trim() || "Unknown",
+      isChief: r.is_chief === true,
+    }))
+
+  // 4. Gate on ranked mode
+  const isRankedMode = shouldUseRankedMode({ scoringMode, evaluatorCount: evaluators.length })
+  if (!isRankedMode) return { ...empty(scoringMode), scoringMode }
+
+  // 5. Chief evaluator
+  const chiefRow = evaluators.find((e) => e.isChief)
+  const chiefEvaluatorId: string | null = chiefRow?.evaluatorId ?? null
+
+  // 6. Fetch active participants with profile names (explicit FK)
+  const { data: participantRows } = await (supabase
+    .from("challenge_participants")
+    .select(`
+      id,
+      user_id,
+      profiles!challenge_participants_user_id_fkey (first_name, last_name)
+    `)
+    .eq("challenge_id", challengeId)
+    .eq("status", "active") as any)
+
+  const participants: Array<{
+    id: string
+    user_id: string
+    first_name: string | null
+    last_name: string | null
+  }> = ((participantRows ?? []) as any[]).map((p: any) => ({
+    id: p.id as string,
+    user_id: p.user_id as string,
+    first_name: (p.profiles?.first_name ?? null) as string | null,
+    last_name: (p.profiles?.last_name ?? null) as string | null,
+  }))
+
+  // 7. Single query — participants + submissions + evaluations (no N+1)
+  const { data: participantsWithEvals } = await (supabase
+    .from("challenge_participants")
+    .select(`
+      id,
+      user_id,
+      submissions (
+        evaluations (
+          score,
+          reviewer_id,
+          is_draft,
+          profiles!evaluations_reviewer_id_fkey (role)
+        )
+      )
+    `)
+    .eq("challenge_id", challengeId)
+    .eq("status", "active") as any)
+
+  // 8. Build evaluatorScores and companyScores
+  const evaluatorScores: EvaluatorScore[] = []
+  const companyScores = new Map<string, number | null>()
+
+  for (const p of ((participantsWithEvals ?? []) as any[])) {
+    companyScores.set(p.user_id as string, null)
+
+    for (const sub of ((p.submissions ?? []) as any[])) {
+      for (const ev of ((sub.evaluations ?? []) as any[])) {
+        if (ev.is_draft !== false) continue
+
+        const role = ev.profiles?.role as string | undefined
+
+        if (role === "evaluator" && ev.score !== null && ev.reviewer_id !== null) {
+          evaluatorScores.push({
+            evaluatorId: ev.reviewer_id as string,
+            participantId: p.user_id as string,
+            rawScore: ev.score as number,
+          })
+        }
+
+        if (
+          (role === "company_admin" || role === "company_member") &&
+          ev.score !== null
+        ) {
+          companyScores.set(p.user_id as string, ev.score as number)
+        }
+      }
+    }
+  }
+
+  // 9. Compute ranked results
+  const rankedResults = computeRankedResults({ evaluatorScores, companyScores, chiefEvaluatorId })
+  const rankedMap = new Map(rankedResults.map((r) => [r.participantId, r]))
+
+  // 10. Build rankPerEvaluator: group evaluator scores by evaluatorId, assign average ranks
+  const byEvaluator = new Map<string, EvaluatorScore[]>()
+  for (const s of evaluatorScores) {
+    const group = byEvaluator.get(s.evaluatorId) ?? []
+    group.push(s)
+    byEvaluator.set(s.evaluatorId, group)
+  }
+
+  // For each evaluator → Map<participantId, rank>
+  const evaluatorRankMaps = new Map<string, Map<string, number>>()
+  for (const [evalId, scores] of byEvaluator) {
+    const sorted = [...scores].sort((a, b) => b.rawScore - a.rawScore)
+    const rankMap = new Map<string, number>()
+    let i = 0
+    while (i < sorted.length) {
+      let j = i
+      while (j < sorted.length && sorted[j].rawScore === sorted[i].rawScore) {
+        j++
+      }
+      const avgRank = (i + 1 + j) / 2
+      for (let k = i; k < j; k++) {
+        rankMap.set(sorted[k].participantId, avgRank)
+      }
+      i = j
+    }
+    evaluatorRankMaps.set(evalId, rankMap)
+  }
+
+  // 11. Build rows — one per participant
+  const rows = participants.map((p) => {
+    const rankedResult = rankedMap.get(p.user_id)
+
+    const rawScores: Record<string, number | null> = {}
+    const rankPerEvaluator: Record<string, number | null> = {}
+
+    for (const ev of evaluators) {
+      const score = evaluatorScores.find(
+        (s) => s.evaluatorId === ev.evaluatorId && s.participantId === p.user_id
+      )
+      rawScores[ev.evaluatorId] = score?.rawScore ?? null
+      rankPerEvaluator[ev.evaluatorId] =
+        evaluatorRankMaps.get(ev.evaluatorId)?.get(p.user_id) ?? null
+    }
+
+    return {
+      participantId: p.user_id,
+      participantName: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "Unknown",
+      rawScores,
+      companyScore: companyScores.get(p.user_id) ?? null,
+      rankPerEvaluator,
+      rankSum: rankedResult?.rankSum ?? null,
+      normalizedScoreAvg: rankedResult?.normalizedScoreAvg ?? null,
+      finalRank: rankedResult?.finalRank ?? null,
+      isTied: rankedResult?.isTied ?? false,
+      tiebreakerUsed: rankedResult?.tiebreakerUsed ?? "none",
+    }
+  })
+
+  // 12. Sort by finalRank ascending, nulls last
+  rows.sort((a, b) => {
+    if (a.finalRank === null) return 1
+    if (b.finalRank === null) return -1
+    return a.finalRank - b.finalRank
+  })
+
+  // 13. Return
+  return {
+    scoringMode,
+    isRankedMode: true,
+    evaluators,
+    rows,
+  }
+}
