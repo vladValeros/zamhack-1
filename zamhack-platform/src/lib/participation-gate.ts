@@ -21,36 +21,29 @@ export type GateResult =
       requiredRank: "intermediate" | "advanced"
       currentRank: string
     }
+  | {
+      allowed: false
+      reason: "xp_rank_advisory"
+      challengeRank: "intermediate" | "advanced"
+      currentRank: string
+    }
 
 export async function checkParticipationGate(
   supabase: SupabaseClient,
   challengeId: string,
   profileId: string
 ): Promise<GateResult> {
-  const { data: challenge } = await (supabase
+  const { data: challenge } = await supabase
     .from("challenges")
-    .select("difficulty, challenge_skills(skill_id)")
+    .select("difficulty")
     .eq("id", challengeId)
-    .single() as any)
+    .single()
 
   if (!challenge) return { allowed: true } // fail-open
 
   const difficulty: string = challenge.difficulty ?? "beginner"
 
   if (difficulty === "beginner") {
-    // Use this challenge's skills to determine overqualification
-    const challengeSkillIds: string[] = (challenge.challenge_skills ?? [])
-      .map((cs: any) => cs.skill_id)
-      .filter(Boolean)
-
-    console.log("[gate] beginner branch | challengeSkillIds:", challengeSkillIds)
-
-    // No skills on this challenge → can't determine overqualification → allow
-    if (challengeSkillIds.length === 0) {
-      console.log("[gate] EXIT: challenge has no challenge_skills — allowed")
-      return { allowed: true }
-    }
-
     // Fetch global guardrail limit from platform_settings
     const { data: settings } = await supabase
       .from("platform_settings")
@@ -60,13 +53,11 @@ export async function checkParticipationGate(
 
     // undefined = column missing or query failed (fail-open); null = admin disabled guardrail
     const globalLimit = (settings as any)?.advanced_beginner_weekly_limit
-    console.log("[gate] globalLimit from platform_settings:", globalLimit)
     if (globalLimit == null) {
-      console.log("[gate] EXIT: globalLimit is null/undefined — allowed (guardrail disabled or column missing)")
       return { allowed: true }
     }
 
-    // Detect advanced students via xp_rank instead of earned skill tiers
+    // Detect advanced students via xp_rank
     const { data: profileForGuard } = await supabase
       .from("profiles")
       .select("xp_rank")
@@ -74,51 +65,22 @@ export async function checkParticipationGate(
       .single()
 
     const guardRank = (profileForGuard as any)?.xp_rank ?? "beginner"
-    console.log("[gate] guardRank:", guardRank)
     if (guardRank !== "advanced") {
-      console.log("[gate] EXIT: not an advanced-rank student — guardrail does not apply")
       return { allowed: true }
     }
 
-    // Advanced-rank student — check rolling 7-day beginner join count for this challenge's skills
-    // Get the specific skill IDs from this challenge to scope the counter
-    const advancedSkillIds: string[] = challengeSkillIds
-
-    // Find all challenge IDs that have any of those same advanced skills
-    const { data: relevantChallengeSkills } = await (supabase
-      .from("challenge_skills")
-      .select("challenge_id")
-      .in("skill_id", advancedSkillIds) as any)
-
-    const relevantChallengeIds = [
-      ...new Set(
-        (relevantChallengeSkills ?? [])
-          .map((cs: any) => cs.challenge_id)
-          .filter(Boolean)
-      ),
-    ] as string[]
-
-    console.log("[gate] relevantChallengeIds count:", relevantChallengeIds.length)
-    if (relevantChallengeIds.length === 0) {
-      console.log("[gate] EXIT: no challenges found with those skills — allowed")
-      return { allowed: true }
-    }
-
-    // Count beginner joins THIS WEEK only in challenges with those same skills
+    // Advanced-XP student — count ALL beginner challenge joins in the past 7 days
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const { data: recentJoins } = await (supabase
       .from("challenge_participants")
       .select("joined_at, challenges(difficulty)")
       .eq("user_id", profileId)
-      .in("challenge_id", relevantChallengeIds)
       .neq("status", "withdrawn")
       .gte("joined_at", weekAgo) as any)
 
     const beginnerJoins = (recentJoins ?? []).filter(
       (p: any) => p.challenges?.difficulty === "beginner"
     )
-
-    console.log("[gate] beginnerJoins this week:", beginnerJoins.length, "| limit:", globalLimit)
 
     if (beginnerJoins.length >= globalLimit) {
       const sorted = [...beginnerJoins].sort(
@@ -151,8 +113,8 @@ export async function checkParticipationGate(
   if (difficulty === "intermediate" && studentXpRank === "beginner") {
     return {
       allowed: false,
-      reason: "xp_rank_gate",
-      requiredRank: "intermediate",
+      reason: "xp_rank_advisory",
+      challengeRank: "intermediate",
       currentRank: studentXpRank,
     }
   }
@@ -160,8 +122,8 @@ export async function checkParticipationGate(
   if (difficulty === "advanced" && studentXpRank !== "advanced") {
     return {
       allowed: false,
-      reason: "xp_rank_gate",
-      requiredRank: "advanced",
+      reason: "xp_rank_advisory",
+      challengeRank: "advanced",
       currentRank: studentXpRank,
     }
   }

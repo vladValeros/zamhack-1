@@ -7,7 +7,6 @@ import { Database } from "@/types/supabase"
 import { autoEvaluateSubmission } from "@/lib/auto-evaluate"
 import { awardChallengeSkills } from "@/lib/award-skills"
 import { type ScoringMode } from "@/lib/scoring-utils"
-import { awardXp } from "@/lib/award-xp"
 
 type SubmissionInsert = Database["public"]["Tables"]["submissions"]["Insert"]
 
@@ -154,40 +153,8 @@ export async function submitMilestone(formData: FormData) {
 
       // Award skill tags — unchanged, do not remove
       await awardChallengeSkills(supabase, milestone.challenge_id, user.id, challengeScoringMode)
-
-      // Fetch evaluations to compute final score for XP
-      const { data: participantForXp } = await supabase
-        .from("challenge_participants")
-        .select(`
-          submissions (
-            evaluations (
-              score,
-              profiles ( role )
-            )
-          )
-        `)
-        .eq("challenge_id", milestone.challenge_id)
-        .eq("user_id", user.id)
-        .single()
-
-      const allEvalsXp = ((participantForXp as any)?.submissions ?? [])
-        .flatMap((s: any) => s.evaluations ?? [])
-
-      const companyEvalXp = allEvalsXp.find(
-        (e: any) =>
-          e.profiles?.role === "company_admin" || e.profiles?.role === "company_member"
-      )
-      const evaluatorEvalXp = allEvalsXp.find((e: any) => e.profiles?.role === "evaluator")
-
-      const { getFinalScore } = await import("@/lib/scoring-utils")
-      const finalScoreXp = getFinalScore({
-        companyScore: companyEvalXp?.score ?? null,
-        evaluatorScore: evaluatorEvalXp?.score ?? null,
-        scoringMode: challengeScoringMode,
-      }) ?? 0
-
-      const challengeDifficultyXp = (milestone?.challenges as any)?.difficulty ?? "beginner"
-      await awardXp(supabase, user.id, challengeDifficultyXp, finalScoreXp)
+      // XP for perpetual challenges is awarded in grading-actions.ts when the
+      // evaluator finalises the evaluation — evaluations don't exist yet at submission time.
     }
   }
 

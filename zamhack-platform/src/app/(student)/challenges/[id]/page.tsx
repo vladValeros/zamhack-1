@@ -22,6 +22,7 @@ import Link from "next/link"
 import DownloadCertificateButton from "@/components/certificate/download-certificate-btn"
 import { RubricCriteriaCard } from "@/components/rubric-criteria-card"
 import { checkParticipationGate, type GateResult } from "@/lib/participation-gate"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 // --- Types ---
 type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
@@ -172,6 +173,32 @@ async function getChallengeData(
     gateStatus,
     challengeSkills: (challengeSkillsRaw as any) ?? [],
   }
+}
+
+function RankAdvisoryBanner({
+  challengeRank,
+  currentRank,
+}: {
+  challengeRank: "intermediate" | "advanced"
+  currentRank: string
+}) {
+  const label: Record<string, string> = {
+    beginner: "Beginner",
+    intermediate: "Intermediate",
+    advanced: "Advanced",
+  }
+  return (
+    <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+      <AlertCircle className="h-4 w-4 text-amber-500" />
+      <AlertTitle className="text-amber-800">
+        Heads up — this is a {label[challengeRank]} challenge
+      </AlertTitle>
+      <AlertDescription className="text-amber-700 text-xs mt-1">
+        Your current rank is <strong>{label[currentRank] ?? currentRank}</strong>. You can
+        still join, but this challenge is designed for more experienced participants.
+      </AlertDescription>
+    </Alert>
+  )
 }
 
 // --- Main Page Component ---
@@ -459,12 +486,21 @@ export default async function ChallengePage({
                   /* CASE 7b: XP rank gate locked */
                   <Button asChild size="lg" variant="outline" className="w-full gap-2">
                     <Link
-                      href={`/challenges/${challenge.id}/rank-gate?required=${(gateStatus as any).requiredRank}&current=${(gateStatus as any).currentRank}&difficulty=${challenge.difficulty}`}
+                      href={`/challenges/${challenge.id}/rank-gate?required=${gateStatus.requiredRank}&current=${gateStatus.currentRank}&difficulty=${challenge.difficulty}`}
                     >
                       <Lock size={16} />
-                      Requires {(gateStatus as any).requiredRank} rank
+                      Requires {gateStatus.requiredRank} rank
                     </Link>
                   </Button>
+                ) : !gateStatus.allowed && gateStatus.reason === "xp_rank_advisory" ? (
+                  /* CASE 7b2: Advisory — challenge yourself */
+                  <div className="space-y-3">
+                    <RankAdvisoryBanner
+                      challengeRank={gateStatus.challengeRank}
+                      currentRank={gateStatus.currentRank}
+                    />
+                    <JoinButton challengeId={id} isFull difficulty={challenge.difficulty ?? undefined} />
+                  </div>
                 ) : !gateStatus.allowed ? (
                   /* CASE 7c: Skill gate locked (legacy) */
                   <Button asChild size="lg" variant="outline" className="w-full gap-2">
@@ -483,29 +519,6 @@ export default async function ChallengePage({
             </CardContent>
           </Card>
 
-          {challenge.difficulty !== "beginner" && challengeSkills.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Required Skills to Join</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Requires at least a{" "}
-                  <strong>
-                    {challenge.difficulty === "advanced" ? "intermediate" : "beginner"}
-                  </strong>{" "}
-                  or higher credential:
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {challengeSkills.map((cs: any) => (
-                    <Badge key={cs.skill_id} variant="secondary" className="text-xs">
-                      {cs.skill?.name ?? cs.skill_id}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
 
