@@ -101,7 +101,10 @@ export async function joinChallenge(challengeId: string, teamId?: string, forceJ
 
   // --- PARTICIPATION GATE ---
   const gateResult = await checkParticipationGate(supabase, challengeId, user.id)
-  if (!gateResult.allowed) {
+  const isAdvisoryOnly =
+    !gateResult.allowed && gateResult.reason === "xp_rank_advisory"
+
+  if (!gateResult.allowed && !isAdvisoryOnly) {
     if (gateResult.reason === "advanced_limit") {
       return {
         error: "advanced_limit",

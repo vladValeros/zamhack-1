@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ChevronRight,
   BookOpen,
+  ShieldAlert,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ interface DashboardData {
   recommendedChallenges: RecommendedChallenge[]
   xpPoints: number
   xpRank: string
+  guardrailLimit: number | null
+  beginnerJoinsThisWeek: number | null
 }
 
 // ── Data Fetching ─────────────────────────────────────────────────────────
@@ -79,7 +82,7 @@ async function getDashboardData(): Promise<DashboardData> {
     .from("challenge_participants")
     .select(`
       id, status, challenge_id,
-      challenges ( id, title, status, end_date, organizations ( name ) )
+      challenges ( id, title, status, end_date, is_perpetual, organizations ( name ) )
     `)
     .eq("user_id", user.id)
 
@@ -87,13 +90,52 @@ async function getDashboardData(): Promise<DashboardData> {
   const activeStatuses = ["approved", "in_progress", "under_review"]
 
   const now = new Date()
-const activeParts = allParticipations.filter((p) => {
-  const challenge = p.challenges as any
-  if (!activeStatuses.includes(challenge?.status || "")) return false
-  // If end_date exists and has passed, treat as no longer active
-  if (challenge?.end_date && new Date(challenge.end_date) < now) return false
-  return true
-})
+// Initial pass — same status/date logic as before
+  const potentiallyActive = allParticipations.filter((p) => {
+    const challenge = p.challenges as any
+    if (!activeStatuses.includes(challenge?.status || "")) return false
+    // If end_date exists and has passed, treat as no longer active
+    if (challenge?.end_date && new Date(challenge.end_date) < now) return false
+    return true
+  })
+
+  // For perpetual challenges, exclude those where all milestones are already submitted
+  const perpetualParts = potentiallyActive.filter(
+    (p) => (p.challenges as any)?.is_perpetual === true
+  )
+
+  const completedPerpetualIds = new Set<string>() // participant record IDs
+
+  if (perpetualParts.length > 0) {
+    const perpetualChallengeIds = perpetualParts
+      .map((p) => (p.challenges as any)?.id)
+      .filter(Boolean)
+    const perpetualParticipantIds = perpetualParts.map((p) => p.id)
+
+    const { data: perpetualMilestones } = await supabase
+      .from("milestones")
+      .select("id, challenge_id")
+      .in("challenge_id", perpetualChallengeIds)
+
+    const { data: perpetualSubmissions } = await supabase
+      .from("submissions")
+      .select("milestone_id, participant_id")
+      .in("participant_id", perpetualParticipantIds)
+
+    const submittedKey = new Set(
+      (perpetualSubmissions || []).map((s) => `${s.participant_id}:${s.milestone_id}`)
+    )
+
+    for (const part of perpetualParts) {
+      const challengeId = (part.challenges as any)?.id
+      const ms = (perpetualMilestones || []).filter((m) => m.challenge_id === challengeId)
+      if (ms.length > 0 && ms.every((m) => submittedKey.has(`${part.id}:${m.id}`))) {
+        completedPerpetualIds.add(part.id)
+      }
+    }
+  }
+
+  const activeParts = potentiallyActive.filter((p) => !completedPerpetualIds.has(p.id))
 
   const completedParts = allParticipations.filter((p) =>
     ["completed", "closed"].includes((p.challenges as any)?.status || "")
@@ -101,7 +143,7 @@ const activeParts = allParticipations.filter((p) => {
 
   const slotsUsed = activeParts.length
   const activeChallengesCount = activeParts.length
-  const completedChallengesCount = completedParts.length
+  const completedChallengesCount = completedParts.length + completedPerpetualIds.size
 
   const { count: skillsCount } = await supabase
     .from("student_skills")
@@ -205,6 +247,37 @@ const activeParts = allParticipations.filter((p) => {
       organization: c.organizations ? { name: c.organizations.name } : null,
     }))
 
+  const xpRankValue: string = (profile as any)?.xp_rank ?? "beginner"
+
+  let guardrailLimit: number | null = null
+  let beginnerJoinsThisWeek: number | null = null
+
+  if (xpRankValue === "advanced") {
+    const { data: settings } = await supabase
+      .from("platform_settings")
+      .select("advanced_beginner_weekly_limit")
+      .eq("id", true)
+      .single()
+
+    const limit = (settings as any)?.advanced_beginner_weekly_limit ?? null
+
+    if (limit != null) {
+      guardrailLimit = limit
+
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      const { data: recentJoins } = await (supabase
+        .from("challenge_participants")
+        .select("joined_at, challenges(difficulty)")
+        .eq("user_id", user.id)
+        .neq("status", "withdrawn")
+        .gte("joined_at", weekAgo) as any)
+
+      beginnerJoinsThisWeek = ((recentJoins ?? []) as any[]).filter(
+        (p) => p.challenges?.difficulty === "beginner"
+      ).length
+    }
+  }
+
   return {
     firstName,
     slotsUsed,
@@ -216,7 +289,9 @@ const activeParts = allParticipations.filter((p) => {
     upcomingDeadlines,
     recommendedChallenges,
     xpPoints: (profile as any)?.xp_points ?? 0,
-    xpRank: (profile as any)?.xp_rank ?? "beginner",
+    xpRank: xpRankValue,
+    guardrailLimit,
+    beginnerJoinsThisWeek,
   }
 }
 
@@ -283,6 +358,8 @@ export default async function StudentDashboardPage() {
     recommendedChallenges,
     xpPoints,
     xpRank,
+    guardrailLimit,
+    beginnerJoinsThisWeek,
   } = await getDashboardData()
 
   const slotsFree = slotsMax - slotsUsed
@@ -411,6 +488,68 @@ export default async function StudentDashboardPage() {
         </div>
 
       </div>
+
+      {/* ── Advanced Guardrail Notice — only for advanced-XP students ──── */}
+      {xpRank === "advanced" && guardrailLimit != null && beginnerJoinsThisWeek != null && (() => {
+        const joinsLeft = Math.max(0, guardrailLimit - beginnerJoinsThisWeek)
+        const pct = Math.min(100, Math.round((beginnerJoinsThisWeek / guardrailLimit) * 100))
+        const atLimit = beginnerJoinsThisWeek >= guardrailLimit
+        return (
+          <div
+            className="flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center sm:justify-between"
+            style={{
+              background: atLimit
+                ? "linear-gradient(135deg, rgba(239,68,68,0.07) 0%, rgba(239,68,68,0.03) 100%)"
+                : "linear-gradient(135deg, rgba(234,179,8,0.07) 0%, rgba(234,179,8,0.03) 100%)",
+              border: `1px solid ${atLimit ? "rgba(239,68,68,0.2)" : "rgba(234,179,8,0.2)"}`,
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className="mt-0.5 flex-shrink-0 rounded-lg p-2"
+                style={{
+                  background: atLimit ? "rgba(239,68,68,0.1)" : "rgba(234,179,8,0.1)",
+                  color: atLimit ? "#dc2626" : "#b45309",
+                }}
+              >
+                <ShieldAlert style={{ width: 18, height: 18 }} />
+              </div>
+              <div>
+                <p className="text-sm font-bold" style={{ color: "#2c3e50" }}>
+                  Beginner Challenge Guardrail
+                </p>
+                <p className="mt-0.5 text-xs" style={{ color: "#6b7280" }}>
+                  {atLimit
+                    ? "You've reached your weekly beginner challenge limit."
+                    : `You have ${joinsLeft} beginner challenge slot${joinsLeft !== 1 ? "s" : ""} remaining this week.`}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-1.5 sm:min-w-[140px]">
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold" style={{ color: atLimit ? "#dc2626" : "#b45309" }}>
+                  {beginnerJoinsThisWeek}
+                </span>
+                <span className="text-sm font-medium" style={{ color: "#9ca3af" }}>
+                  / {guardrailLimit} this week
+                </span>
+              </div>
+              <div className="w-full sm:w-36" style={{ height: 6, background: "rgba(0,0,0,0.06)", borderRadius: 99 }}>
+                <div
+                  style={{
+                    height: "100%",
+                    borderRadius: 99,
+                    width: `${pct}%`,
+                    background: atLimit
+                      ? "linear-gradient(90deg, #ef4444, #dc2626)"
+                      : "linear-gradient(90deg, #f59e0b, #b45309)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Deadlines strip — mobile only (appears between cards and active list) */}
       {upcomingDeadlines.length > 0 && (

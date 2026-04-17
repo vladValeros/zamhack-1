@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
 import { Database } from "@/types/supabase"
+import { awardXp } from "@/lib/award-xp"
+import { getFinalScore, type ScoringMode } from "@/lib/scoring-utils"
 
 type EvaluationInsert = Database["public"]["Tables"]["evaluations"]["Insert"]
 type EvaluationUpdate = Database["public"]["Tables"]["evaluations"]["Update"]
@@ -70,7 +72,7 @@ export async function submitEvaluation(
 
   const { data: challenge, error: challengeError } = await supabase
     .from("challenges")
-    .select("id, organization_id")
+    .select("id, organization_id, is_perpetual, difficulty, xp_multiplier, scoring_mode")
     .eq("id", milestone.challenge_id)
     .single()
 
@@ -177,6 +179,91 @@ export async function submitEvaluation(
   // Revalidate relevant paths for both roles
   revalidatePath(`/company/challenges/${milestone.challenge_id}`)
   revalidatePath(`/evaluator/assignments/${milestone.challenge_id}`)
+
+  // --- PERPETUAL CHALLENGE XP AWARD ---
+  // For perpetual challenges (no close event), award XP when a final evaluation
+  // is submitted. Non-perpetual challenges get XP via closeChallenge() instead.
+  if (!isDraft && (challenge as any).is_perpetual === true) {
+    // Get the participant's user_id
+    const { data: participantRow } = await supabase
+      .from("challenge_participants")
+      .select("user_id")
+      .eq("id", submission.participant_id!)
+      .single()
+
+    const participantUserId = participantRow?.user_id
+    if (participantUserId) {
+      // Check all milestones are submitted for this participant
+      const { data: milestoneIds } = await supabase
+        .from("milestones")
+        .select("id")
+        .eq("challenge_id", challenge.id)
+
+      const { count: totalMilestones } = await supabase
+        .from("milestones")
+        .select("id", { count: "exact" })
+        .eq("challenge_id", challenge.id)
+
+      const { count: submittedCount } = await supabase
+        .from("submissions")
+        .select("id", { count: "exact" })
+        .eq("participant_id", submission.participant_id!)
+        .in("milestone_id", milestoneIds?.map((m) => m.id) ?? [])
+
+      if (submittedCount === totalMilestones && totalMilestones !== null && totalMilestones > 0) {
+        // Fetch all evaluations for this participant to compute final score
+        const { data: participantEvalRow } = await supabase
+          .from("challenge_participants")
+          .select(`
+            submissions (
+              evaluations (
+                score,
+                is_draft,
+                profiles ( role )
+              )
+            )
+          `)
+          .eq("challenge_id", challenge.id)
+          .eq("user_id", participantUserId)
+          .single()
+
+        const allEvals = ((participantEvalRow as any)?.submissions ?? [])
+          .flatMap((s: any) => s.evaluations ?? [])
+          .filter((e: any) => e.is_draft === false)
+
+        const companyEval = allEvals.find(
+          (e: any) =>
+            e.profiles?.role === "company_admin" || e.profiles?.role === "company_member"
+        )
+        const evaluatorEval = allEvals.find((e: any) => e.profiles?.role === "evaluator")
+
+        const scoringMode = ((challenge as any).scoring_mode ?? "company_only") as ScoringMode
+        const finalScore = getFinalScore({
+          companyScore: companyEval?.score ?? null,
+          evaluatorScore: evaluatorEval?.score ?? null,
+          scoringMode,
+        }) ?? 0
+
+        // Fetch global XP formula settings (same as closeChallenge)
+        const { data: xpSettings } = await (supabase
+          .from("platform_settings")
+          .select("xp_score_threshold, xp_penalty, xp_base_min, xp_base_max")
+          .eq("id", true)
+          .single() as any)
+
+        const xpFormulaOptions = {
+          xpMultiplier: (challenge as any).xp_multiplier ?? 1.0,
+          scoreThreshold: (xpSettings as any)?.xp_score_threshold ?? 70,
+          penalty: (xpSettings as any)?.xp_penalty ?? 50,
+          baseMin: (xpSettings as any)?.xp_base_min ?? 50,
+          baseMax: (xpSettings as any)?.xp_base_max ?? 400,
+        }
+
+        const challengeDifficulty = (challenge as any).difficulty ?? "beginner"
+        await awardXp(supabase, participantUserId, challengeDifficulty, finalScore, xpFormulaOptions)
+      }
+    }
+  }
 
   return { success: true }
 }

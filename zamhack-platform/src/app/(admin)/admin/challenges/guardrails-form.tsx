@@ -49,7 +49,7 @@ export function GuardrailsForm({ currentLimit }: GuardrailsFormProps) {
             Advanced Student Guardrails
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
-            Limit how many beginner challenges advanced-tier students can join per week
+            Limit how many beginner challenges Advanced-XP students can join per week
           </div>
         </div>
       </div>
@@ -67,9 +67,9 @@ export function GuardrailsForm({ currentLimit }: GuardrailsFormProps) {
       }}>
         <Info style={{ width: 15, height: 15, flexShrink: 0, marginTop: 2 }} />
         <span>
-          Any student who holds <strong>any skill at the advanced tier</strong> is subject to this limit.
-          They can join at most <strong>N beginner challenges per 7-day rolling window</strong>, regardless of
-          which specific skills they have. Leave blank to disable the guardrail entirely.
+          Any student whose <strong>XP rank is Advanced</strong> is subject to this limit.
+          They can join at most <strong>N beginner challenges per 7-day rolling window</strong>.
+          Leave blank to disable the guardrail entirely.
         </span>
       </div>
 
@@ -83,7 +83,7 @@ export function GuardrailsForm({ currentLimit }: GuardrailsFormProps) {
             Max beginner challenge joins per week
           </label>
           <p style={{ fontSize: "0.78rem", color: "var(--admin-gray-400)", marginBottom: "0.625rem" }}>
-            Applies to all students who have earned any advanced-tier skill. Leave blank for no limit.
+            Applies to all students whose XP rank is Advanced. Leave blank for no limit.
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <input
