@@ -1045,3 +1045,31 @@
 .admin-cta:hover {
   background: var(--admin-blue-dark) !important;
 }
+/* ============================================
+   ACTIVITY LOGS
+   ============================================ */
+
+.admin-log-details summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--admin-blue);
+  font-weight: 600;
+  user-select: none;
+}
+
+.admin-log-details[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.admin-log-meta-pre {
+  font-size: 0.7rem;
+  background: var(--admin-gray-100);
+  border-radius: var(--admin-radius-sm);
+  padding: 0.5rem 0.75rem;
+  color: var(--admin-gray-700);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 280px;
+  max-height: 120px;
+  overflow-y: auto;
+}

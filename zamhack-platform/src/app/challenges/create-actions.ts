@@ -3,6 +3,7 @@
 import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
 import { Database } from "@/types/supabase"
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
 
 type ChallengeStatus = Database["public"]["Enums"]["challenge_status"]
 type ProficiencyLevel = Database["public"]["Enums"]["proficiency_level"]
@@ -235,6 +236,17 @@ export const createChallenge = async (
         }
       }
     }
+
+    await logActivity({
+      log_type: 'company',
+      actor_id: user.id,
+      organization_id: profile.organization_id ?? undefined,
+      action: ActivityAction.CHALLENGE_CREATED,
+      entity_type: EntityType.CHALLENGE,
+      entity_id: challengeId,
+      entity_label: input.title,
+      metadata: { title: input.title, status: 'draft' },
+    })
 
     revalidatePath("/company/challenges")
     revalidatePath("/company/dashboard")

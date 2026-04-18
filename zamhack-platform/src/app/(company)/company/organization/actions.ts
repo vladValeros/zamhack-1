@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
 import { createClient as createAdminClient } from "@supabase/supabase-js"
 import { Database } from "@/types/supabase"
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
 
 function getAdminSupabase() {
   return createAdminClient<Database>(
@@ -93,6 +94,17 @@ export async function updateOrganization(orgId: string, formData: FormData) {
     .eq("id", orgId)
 
   if (error) return { error: error.message }
+
+  await logActivity({
+    log_type: 'company',
+    actor_id: user.id,
+    organization_id: orgId,
+    action: ActivityAction.ORG_PROFILE_UPDATED,
+    entity_type: EntityType.ORGANIZATION,
+    entity_id: orgId,
+    entity_label: name,
+    metadata: { updated_fields: Object.keys(updatePayload) },
+  })
 
   revalidatePath("/company/organization")
   return { success: "Organization updated successfully!" }

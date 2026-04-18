@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   Shield,
+  ScrollText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LogoutButton } from "@/components/logout-button"
@@ -20,6 +21,7 @@ const adminNavItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/users", label: "User Management", icon: Users },
   { href: "/admin/challenges", label: "Challenge Management", icon: Briefcase },
+  { href: "/admin/logs", label: "Activity Logs", icon: ScrollText },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/settings", label: "Platform Settings", icon: Settings },
 ]

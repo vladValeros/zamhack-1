@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
 
 // ==========================================
 // ORGANIZATION ACTIONS
@@ -30,6 +31,16 @@ export async function approveOrganization(orgId: string) {
 
   if (updateError) return { success: false, error: updateError.message || "Failed to approve organization" }
 
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.ORG_APPROVED,
+    entity_type: EntityType.ORGANIZATION,
+    entity_id: orgId,
+    entity_label: undefined,
+    metadata: { org_id: orgId },
+  })
+
   revalidatePath("/admin/dashboard")
   return { success: true }
 }
@@ -56,6 +67,15 @@ export async function rejectOrganization(orgId: string) {
 
   if (updateError) return { success: false, error: updateError.message || "Failed to reject organization" }
 
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.ORG_REJECTED,
+    entity_type: EntityType.ORGANIZATION,
+    entity_id: orgId,
+    metadata: { org_id: orgId },
+  })
+
   revalidatePath("/admin/dashboard")
   return { success: true }
 }
@@ -78,12 +98,29 @@ export async function approveChallenge(challengeId: string) {
 
   if (profile?.role !== "admin") throw new Error("Unauthorized")
 
+  const { data: challengeForLog } = await supabase
+    .from('challenges')
+    .select('title, organization_id')
+    .eq('id', challengeId)
+    .single()
+
   const { error } = await supabase
     .from("challenges")
     .update({ status: "approved" })
     .eq("id", challengeId)
 
   if (error) throw new Error("Failed to approve challenge")
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.CHALLENGE_APPROVED,
+    entity_type: EntityType.CHALLENGE,
+    entity_id: challengeId,
+    entity_label: challengeForLog?.title ?? undefined,
+    organization_id: challengeForLog?.organization_id ?? undefined,
+    metadata: { challenge_id: challengeId },
+  })
 
   revalidatePath("/admin/dashboard")
   revalidatePath(`/admin/challenges/${challengeId}`)
@@ -103,12 +140,29 @@ export async function rejectChallenge(challengeId: string) {
 
   if (profile?.role !== "admin") throw new Error("Unauthorized")
 
+  const { data: challengeForLog } = await supabase
+    .from('challenges')
+    .select('title, organization_id')
+    .eq('id', challengeId)
+    .single()
+
   const { error } = await supabase
     .from("challenges")
     .update({ status: "draft" })
     .eq("id", challengeId)
 
   if (error) throw new Error("Failed to reject challenge")
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.CHALLENGE_REJECTED,
+    entity_type: EntityType.CHALLENGE,
+    entity_id: challengeId,
+    entity_label: challengeForLog?.title ?? undefined,
+    organization_id: challengeForLog?.organization_id ?? undefined,
+    metadata: { challenge_id: challengeId },
+  })
 
   revalidatePath("/admin/dashboard")
   revalidatePath(`/admin/challenges/${challengeId}`)
@@ -223,6 +277,19 @@ export async function approvePendingEdit(pendingEditId: string) {
     })
     .eq("id", pendingEditId)
 
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.PENDING_EDIT_APPROVED,
+    entity_type: EntityType.PENDING_EDIT,
+    entity_id: pendingEditId,
+    entity_label: undefined,
+    metadata: {
+      pending_edit_id: pendingEditId,
+      challenge_id: pendingEdit.challenge_id,
+    },
+  })
+
   revalidatePath(`/admin/challenges/${challengeId}`)
   revalidatePath(`/company/challenges/${challengeId}`)
   revalidatePath(`/challenges/${challengeId}`)
@@ -262,6 +329,19 @@ export async function rejectPendingEdit(pendingEditId: string, adminNote?: strin
     .eq("id", pendingEditId)
 
   if (error) throw new Error("Failed to reject pending edit")
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.PENDING_EDIT_REJECTED,
+    entity_type: EntityType.PENDING_EDIT,
+    entity_id: pendingEditId,
+    entity_label: undefined,
+    metadata: {
+      pending_edit_id: pendingEditId,
+      challenge_id: pendingEdit.challenge_id,
+    },
+  })
 
   revalidatePath(`/admin/challenges/${pendingEdit.challenge_id}`)
   revalidatePath(`/company/challenges/${pendingEdit.challenge_id}`)

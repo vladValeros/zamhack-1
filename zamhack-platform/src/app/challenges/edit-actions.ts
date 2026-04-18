@@ -4,6 +4,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { type Enums } from "@/types/supabase";
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log";
 
 export type MilestoneInput = {
   id?: string;
@@ -62,7 +63,7 @@ export async function updateChallenge(
 
   const { data: existing, error: fetchError } = await supabase
     .from("challenges")
-    .select("status, created_by")
+    .select("status, created_by, organization_id")
     .eq("id", challengeId)
     .single();
 
@@ -155,6 +156,17 @@ export async function updateChallenge(
       }
     }
 
+    await logActivity({
+      log_type: 'company',
+      actor_id: user.id,
+      organization_id: existing.organization_id ?? undefined,
+      action: ActivityAction.CHALLENGE_EDITED,
+      entity_type: EntityType.CHALLENGE,
+      entity_id: challengeId,
+      entity_label: data.title,
+      metadata: { pending_review: false },
+    })
+
     revalidatePath(`/company/challenges/${challengeId}`);
     return { type: "updated", redirectTo: `/company/challenges/${challengeId}` };
 
@@ -170,6 +182,17 @@ export async function updateChallenge(
       });
 
     if (insertError) throw new Error(insertError.message);
+
+    await logActivity({
+      log_type: 'company',
+      actor_id: user.id,
+      organization_id: existing.organization_id ?? undefined,
+      action: ActivityAction.CHALLENGE_EDITED,
+      entity_type: EntityType.CHALLENGE,
+      entity_id: challengeId,
+      entity_label: data.title,
+      metadata: { pending_review: true },
+    })
 
     revalidatePath(`/company/challenges/${challengeId}`);
     return { type: "pending_review", redirectTo: `/company/challenges/${challengeId}` };

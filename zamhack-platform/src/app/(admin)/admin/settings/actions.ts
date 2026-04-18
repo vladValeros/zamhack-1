@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
 
 // Define the shape manually since types might not be generated yet
 interface PlatformSettingsUpdate {
@@ -44,6 +45,18 @@ export async function updatePlatformSettings(data: PlatformSettingsUpdate) {
     console.error("Settings update failed:", error)
     return { error: "Failed to update settings" }
   }
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.SETTINGS_UPDATED,
+    entity_type: EntityType.SETTINGS,
+    metadata: {
+      maintenance_mode: data.maintenance_mode,
+      allow_new_signups: data.allow_new_signups,
+      default_currency: data.default_currency,
+    },
+  })
 
   revalidatePath("/admin/settings")
   return { success: "Platform settings updated successfully" }

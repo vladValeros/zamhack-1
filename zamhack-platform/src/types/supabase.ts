@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_logs: {
+        Row: {
+          id: string
+          log_type: 'admin' | 'company'
+          actor_id: string
+          organization_id: string | null
+          action: string
+          entity_type: string | null
+          entity_id: string | null
+          entity_label: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          log_type: 'admin' | 'company'
+          actor_id: string
+          organization_id?: string | null
+          action: string
+          entity_type?: string | null
+          entity_id?: string | null
+          entity_label?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          log_type?: 'admin' | 'company'
+          actor_id?: string
+          organization_id?: string | null
+          action?: string
+          entity_type?: string | null
+          entity_id?: string | null
+          entity_label?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_logs_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       challenge_evaluators: {
         Row: {
           assigned_at: string | null

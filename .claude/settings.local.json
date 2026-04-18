@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"Dev server PID: $!\")",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx tsx:*)",
+      "Bash(cat)",
+      "Bash(node rank-trace.cjs)",
+      "Bash(node -e ' *)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(node -e \"const j = require\\('jspdf'\\); console.log\\(Object.keys\\(j\\)\\)\")"
     ]
   }
 }
