@@ -22,6 +22,7 @@ export async function updateProfile(formData: FormData) {
   // Extract form data
   const firstName = formData.get("first_name") as string | null
   const lastName = formData.get("last_name") as string | null
+  const middleName = formData.get("middle_name") as string | null
   const bio = formData.get("bio") as string | null
   const university = formData.get("university") as string | null
   const degree = formData.get("degree") as string | null
@@ -49,6 +50,7 @@ export async function updateProfile(formData: FormData) {
   const updateData: ProfileUpdate = {
     first_name: firstName || null,
     last_name: lastName || null,
+    middle_name: middleName || null,
     bio: bio || null,
     university: university || null,
     degree: degree || null,

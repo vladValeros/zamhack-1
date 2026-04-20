@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { updateProfile } from "@/app/(student)/profile/actions"
 import { Database } from "@/types/supabase"
+import { UniversitySelect } from "@/components/university-select"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 
@@ -33,6 +34,7 @@ export const EditProfileDialog = ({ profile }: EditProfileDialogProps) => {
   // Form state
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
+  const [middleName, setMiddleName] = useState("")
   const [bio, setBio] = useState("")
   const [university, setUniversity] = useState("")
   const [degree, setDegree] = useState("")
@@ -46,6 +48,7 @@ export const EditProfileDialog = ({ profile }: EditProfileDialogProps) => {
     if (profile) {
       setFirstName(profile.first_name || "")
       setLastName(profile.last_name || "")
+      setMiddleName((profile as any).middle_name || "")
       setBio(profile.bio || "")
       setUniversity(profile.university || "")
       setDegree(profile.degree || "")
@@ -75,6 +78,7 @@ export const EditProfileDialog = ({ profile }: EditProfileDialogProps) => {
       const formData = new FormData()
       if (firstName.trim()) formData.append("first_name", firstName.trim())
       if (lastName.trim()) formData.append("last_name", lastName.trim())
+        if (middleName.trim()) formData.append("middle_name", middleName.trim())
       if (bio.trim()) formData.append("bio", bio.trim())
       if (university.trim()) formData.append("university", university.trim())
       if (degree.trim()) formData.append("degree", degree.trim())
@@ -131,6 +135,13 @@ export const EditProfileDialog = ({ profile }: EditProfileDialogProps) => {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="middle_name">Middle Name</Label>
+              <Input id="middle_name" value={middleName} onChange={(e) => setMiddleName(e.target.value)} 
+                 disabled={isSubmitting} 
+                 placeholder="Optional" 
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="last_name">Last Name</Label>
               <Input
                 id="last_name"
@@ -155,13 +166,11 @@ export const EditProfileDialog = ({ profile }: EditProfileDialogProps) => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="university">University</Label>
-            <Input
-              id="university"
+            <Label>University</Label>
+            <UniversitySelect
               value={university}
-              onChange={(e) => setUniversity(e.target.value)}
+              onChange={setUniversity}
               disabled={isSubmitting}
-              placeholder="University Name"
             />
           </div>
 
