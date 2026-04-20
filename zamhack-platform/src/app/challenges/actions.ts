@@ -301,9 +301,13 @@ export async function checkEvaluationCompleteness(challengeId: string): Promise<
 }
 
 // --- ACTION: CLOSE CHALLENGE ---
-// Perpetual challenges: just sets status to "closed" — no winners calculated.
-// Normal challenges: calculates top 3 winners from scores, then closes.
-export async function closeChallenge(challengeId: string, forceClose = false): Promise<{
+// Core close logic — accepts any Supabase client (user session or service role).
+// Called by closeChallenge (with auth) and the cron route (with service role).
+export async function closeChallengeInternal(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  challengeId: string,
+  forceClose = false,
+): Promise<{
   success: boolean
   error: string | null
   requiresConfirmation?: boolean
@@ -314,32 +318,13 @@ export async function closeChallenge(challengeId: string, forceClose = false): P
     participantName: string
   }>
 }> {
-  const supabase = await createClient()
-
-  // 1. Auth & Ownership
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { success: false, error: "Unauthorized" }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, organization_id")
-    .eq("id", user.id)
-    .single()
-
-  if (!profile || (profile.role !== "company_admin" && profile.role !== "company_member")) {
-    return { success: false, error: "Only company admins can close challenges." }
-  }
-
-  // 2. Fetch challenge — verify org ownership, check perpetual flag, difficulty, and scoring_mode
   const { data: challenge } = await (supabase
     .from("challenges")
     .select("organization_id, is_perpetual, scoring_mode, difficulty")
     .eq("id", challengeId)
     .single() as any)
 
-  if (!challenge || challenge.organization_id !== profile.organization_id) {
-    return { success: false, error: "Unauthorized access to this challenge." }
-  }
+  if (!challenge) return { success: false, error: "Challenge not found." }
 
   const isPerpetual: boolean = challenge.is_perpetual === true
   const scoringMode: ScoringMode = (challenge.scoring_mode || "company_only") as ScoringMode
@@ -418,7 +403,7 @@ export async function closeChallenge(challengeId: string, forceClose = false): P
     const evaluatorScores: EvaluatorScore[] = []
     const companyScores = new Map<string, number | null>()
 
-    for (const p of participants as any[]) {
+    for (const p of (participants as any[]).filter((p: any) => !!p.user_id)) {
       // Initialize company score as null for every participant
       companyScores.set(p.user_id, null)
 
@@ -512,7 +497,7 @@ export async function closeChallenge(challengeId: string, forceClose = false): P
     })
   } else {
     // ── EXISTING NON-RANKED MODE (keep exactly as-is) ────────────
-    const leaderboard = (participants as any[]).map((p: any) => {
+    const leaderboard = (participants as any[]).filter((p: any) => !!p.user_id).map((p: any) => {
       const totalScore = p.submissions.reduce((acc: number, sub: any) => {
         const evals = (sub.evaluations || []) as Array<{
           score: number | null
@@ -646,6 +631,47 @@ export async function closeChallenge(challengeId: string, forceClose = false): P
   revalidatePath(`/challenges/${challengeId}/results`)
 
   return { success: true, error: null }
+}
+
+// Perpetual challenges: just sets status to "closed" — no winners calculated.
+// Normal challenges: calculates top 3 winners from scores, then closes.
+export async function closeChallenge(challengeId: string, forceClose = false): Promise<{
+  success: boolean
+  error: string | null
+  requiresConfirmation?: boolean
+  missing?: Array<{
+    evaluatorId: string
+    evaluatorName: string
+    participantId: string
+    participantName: string
+  }>
+}> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: "Unauthorized" }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, organization_id")
+    .eq("id", user.id)
+    .single()
+
+  if (!profile || (profile.role !== "company_admin" && profile.role !== "company_member")) {
+    return { success: false, error: "Only company admins can close challenges." }
+  }
+
+  const { data: challenge } = await (supabase
+    .from("challenges")
+    .select("organization_id")
+    .eq("id", challengeId)
+    .single() as any)
+
+  if (!challenge || challenge.organization_id !== profile.organization_id) {
+    return { success: false, error: "Unauthorized access to this challenge." }
+  }
+
+  return closeChallengeInternal(supabase, challengeId, forceClose)
 }
 
 // --- ACTION: RECALCULATE WINNERS ---
@@ -826,7 +852,7 @@ export async function recalculateWinners(challengeId: string): Promise<{ success
     })
   } else {
     // ── EXISTING NON-RANKED MODE (keep exactly as-is) ────────────
-    const leaderboard = (participants as any[]).map((p: any) => {
+    const leaderboard = (participants as any[]).filter((p: any) => !!p.user_id).map((p: any) => {
       const totalScore = p.submissions.reduce((acc: number, sub: any) => {
         const evals = (sub.evaluations || []) as Array<{
           score: number | null
