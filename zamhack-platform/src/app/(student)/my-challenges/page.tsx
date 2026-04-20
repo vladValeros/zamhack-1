@@ -82,6 +82,7 @@ for (const m of milestonesResult.data ?? []) {
 // Count submissions per participant
 const submissionCountMap = new Map<string, number>()
 for (const s of submissionsResult.data ?? []) {
+  if (!s.participant_id) continue
   submissionCountMap.set(s.participant_id, (submissionCountMap.get(s.participant_id) ?? 0) + 1)
 }
 
