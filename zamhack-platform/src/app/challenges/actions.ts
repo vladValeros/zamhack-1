@@ -64,6 +64,45 @@ export async function joinChallenge(challengeId: string, teamId?: string, forceJ
 
   if (existing) return { error: "You are already joined in this challenge." }
 
+        // ── Slot limit check ──────────────────────────────────────────────────────
+    const { data: profileSlots } = await supabase
+      .from("profiles")
+      .select("max_active_challenges")
+      .eq("id", user.id)
+      .single()
+
+    const maxSlots = profileSlots?.max_active_challenges ?? 3
+
+    // Count participations where the joined challenge is still active
+    const { data: activeParts } = await supabase
+  .from("challenge_participants")
+  .select("challenge_id")
+  .eq("user_id", user.id)
+
+    const activePartChallengeIds = (activeParts ?? [])
+      .map((p) => p.challenge_id)
+      .filter(Boolean) as string[]
+
+    let activeSlotCount = 0
+    if (activePartChallengeIds.length > 0) {
+      const now = new Date().toISOString()
+      const { count } = await supabase
+        .from("challenges")
+        .select("id", { count: "exact", head: true })
+        .in("id", activePartChallengeIds)
+        .in("status", ["approved", "in_progress"])
+        .or(`end_date.is.null,end_date.gt.${now}`)
+
+      activeSlotCount = count ?? 0
+    }
+ 
+    if (activeSlotCount >= maxSlots) {
+      return {
+        error: `You've reached your limit of ${maxSlots} active challenge${maxSlots !== 1 ? "s" : ""}. Complete or wait for one to end before joining another.`
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
   if (!forceJoin) {
     const { data: activeParticipations } = await (supabase
       .from("challenge_participants")

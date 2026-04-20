@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ArrowLeft } from "lucide-react"
+import { UniversitySelect } from "@/components/university-select"
 
 // --- FIX: Define the base shape with the new optional middleName ---
 const baseSchemaShape = z.object({
@@ -48,6 +49,7 @@ export default function SignupPage() {
   const [success, setSuccess] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
+  const [universityValue, setUniversityValue] = useState("")
 
   // Student Form
   const studentForm = useForm<z.infer<typeof studentSchema>>({
@@ -164,9 +166,17 @@ export default function SignupPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>University</Label>
-                  <Input {...studentForm.register("university")} placeholder="University/College Name" disabled={isSubmitting} />
-                  {studentForm.formState.errors.university && <p className="text-xs text-red-500">{studentForm.formState.errors.university.message}</p>}
+                  <UniversitySelect
+                    value={universityValue}
+                    onChange={(val) => {
+                      setUniversityValue(val)
+                      studentForm.setValue("university", val, { shouldValidate: true })
+                    }}
+                    disabled={isSubmitting}
+                    error={studentForm.formState.errors.university?.message}
+                  />
                 </div>
+
                 <div className="space-y-2">
                   <Label>Email</Label>
                   <Input {...studentForm.register("email")} type="email" disabled={isSubmitting} />

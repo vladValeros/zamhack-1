@@ -151,7 +151,7 @@ export function ChallengeCard({ challenge, perpetualResultsHref, isParticipant, 
     }
     if (isClosed) {
       return {
-        label: <><CheckCircle2 size={14} /> View Results</>,
+        label: <><Lock size={14} /> Challenge Closed</>,
         className: "cc-cta cc-cta-muted",
       }
     }
@@ -252,9 +252,15 @@ export function ChallengeCard({ challenge, perpetualResultsHref, isParticipant, 
 
       {/* ── CTA footer ── */}
       <div className="cc-footer">
-        <Link href={ctaHref} className={ctaContent.className}>
-          {ctaContent.label}
-        </Link>
+        {isClosed && !isPerpetualCompleted && !resultsHref ? (
+          <span className={ctaContent.className} style={{ cursor: "default", opacity: 0.6 }}>
+            {ctaContent.label}
+          </span>
+        ) : (
+          <Link href={ctaHref} className={ctaContent.className}>
+            {ctaContent.label}
+          </Link>
+        )}
       </div>
     </article>
   )

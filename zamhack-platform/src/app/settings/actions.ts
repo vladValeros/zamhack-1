@@ -38,7 +38,9 @@ export async function updatePassword(formData: FormData) {
     password: newPassword,
   })
 
-  if (error) {
+  // Supabase throws a session refresh error after password change even on success —
+  // ignore it if the message is about auth session or refresh token
+  if (error && !error.message.toLowerCase().includes("session") && !error.message.toLowerCase().includes("refresh")) {
     return { error: error.message }
   }
 
