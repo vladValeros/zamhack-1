@@ -55,7 +55,7 @@ export async function createTeam(name: string) {
     .single()
 
   if (createError) {
-    return { error: createError.message || "Failed to create team" }
+    return { error: createError?.message ?? "Failed to create team" }
   }
 
   const memberData: TeamMemberInsert = {
@@ -129,7 +129,7 @@ export async function joinTeam(code: string) {
     .insert(memberData)
 
   if (joinError) {
-    return { error: joinError.message || "Failed to join team" }
+    return { error: joinError?.message ?? "Failed to join team" }
   }
 
   revalidatePath("/team")
@@ -176,7 +176,7 @@ export async function leaveTeam() {
     .eq("profile_id", user.id)
 
   if (leaveError) {
-    return { error: leaveError.message || "Failed to leave team" }
+    return { error: leaveError?.message ?? "Failed to leave team" }
   }
 
   revalidatePath("/team")
@@ -236,7 +236,7 @@ export async function deleteTeam() {
     .eq("id", team.id)
 
   if (deleteError) {
-    return { error: deleteError.message || "Failed to delete team" }
+    return { error: deleteError?.message ?? "Failed to delete team" }
   }
 
   revalidatePath("/team")
