@@ -38,7 +38,24 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Define protected routes
-  const protectedRoutes = ["/dashboard", "/company", "/admin", "/profiles"];
+  const protectedRoutes = [
+    // Student portal
+    "/dashboard",
+    "/challenges",
+    "/my-challenges",
+    "/messages",
+    "/profile",
+    "/settings",
+    "/team",
+    "/support",
+    "/help",
+    // Company portal
+    "/company",
+    // Admin portal
+    "/admin",
+    // Shared
+    "/profiles",
+  ];
   const isProtectedRoute = protectedRoutes.some((route) =>
     pathname.startsWith(route)
   );
