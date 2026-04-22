@@ -2,7 +2,6 @@ import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
 import { Database } from "@/types/supabase"
 import Link from "next/link"
-import { OrgApprovalActions } from "@/components/admin/org-approval-actions"
 import {
   Users,
   Building2,
@@ -14,7 +13,6 @@ import {
 } from "lucide-react"
 import "@/app/(admin)/admin.css"
 
-type Organization = Database["public"]["Tables"]["organizations"]["Row"]
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 type PendingEdit = Database["public"]["Tables"]["challenge_pending_edits"]["Row"]
 
@@ -23,7 +21,6 @@ interface PendingEditWithChallenge extends PendingEdit {
 }
 
 interface DashboardData {
-  pendingOrgs: Organization[]
   pendingChallenges: any[]
   pendingEdits: PendingEditWithChallenge[]
   stats: {
@@ -51,12 +48,6 @@ async function getAdminDashboardData(): Promise<DashboardData> {
     .single()
 
   if (profileError || !profile || profile.role !== "admin") redirect("/dashboard")
-
-  const { data: pendingOrgs } = await supabase
-    .from("organizations")
-    .select("*")
-    .eq("status", "pending")
-    .order("created_at", { ascending: false })
 
   const { data: pendingChallenges, error: challengeError } = await supabase
     .from("challenges")
@@ -94,7 +85,6 @@ async function getAdminDashboardData(): Promise<DashboardData> {
     .limit(10)
 
   return {
-    pendingOrgs: pendingOrgs || [],
     pendingChallenges: pendingChallenges || [],
     pendingEdits: (pendingEdits as PendingEditWithChallenge[]) || [],
     stats: {
@@ -116,11 +106,11 @@ const getUserName = (user: Profile) => {
 }
 
 export default async function AdminDashboardPage() {
-  const { pendingOrgs, pendingChallenges, pendingEdits, stats, recentUsers } =
+  const { pendingChallenges, pendingEdits, stats, recentUsers } =
     await getAdminDashboardData()
 
   const totalPendingActions =
-    pendingOrgs.length + pendingChallenges.length + pendingEdits.length
+    pendingChallenges.length + pendingEdits.length
 
   return (
     <div className="space-y-6" data-layout="admin">
@@ -183,127 +173,68 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Pending Actions Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Pending Organizations */}
-        <div className="admin-card">
-          <div className="admin-card-header">
-            <div>
-              <div className="admin-card-title">Pending Organizations</div>
-              <div className="admin-card-subtitle">Companies awaiting approval</div>
-            </div>
-            {pendingOrgs.length > 0 && (
-              <span className="admin-badge yellow">
-                <span className="admin-badge-dot" />
-                {pendingOrgs.length} pending
-              </span>
-            )}
+      {/* Pending Challenges */}
+      <div className="admin-card">
+        <div className="admin-card-header">
+          <div>
+            <div className="admin-card-title">Pending Challenges</div>
+            <div className="admin-card-subtitle">Challenges awaiting approval</div>
           </div>
-
-          {pendingOrgs.length === 0 ? (
-            <div className="admin-empty">
-              <div className="admin-empty-icon">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div className="admin-empty-title">All caught up!</div>
-              <div className="admin-empty-text">No organizations awaiting approval</div>
-            </div>
-          ) : (
-            <div>
-              {pendingOrgs.slice(0, 5).map((org) => (
-                <div key={org.id} className="admin-action-card">
-                  <div className="admin-action-card-info">
-                    <div className="admin-action-card-avatar">
-                      {(org.name || "?")[0].toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="admin-action-card-name">{org.name || "Unnamed Org"}</div>
-                      <div className="admin-action-card-meta">
-                        {(org as any).industry || "No industry"} · {formatDate(org.created_at)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="admin-action-card-actions">
-                    <OrgApprovalActions orgId={org.id} />
-                  </div>
-                </div>
-              ))}
-              {pendingOrgs.length > 5 && (
-                <div className="p-4 text-center">
-                  <Link href="/admin/users?tab=companies" className="admin-btn admin-btn-outline admin-btn-sm">
-                    View all {pendingOrgs.length} pending
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              )}
-            </div>
+          {pendingChallenges.length > 0 && (
+            <span className="admin-badge coral">
+              <span className="admin-badge-dot" />
+              {pendingChallenges.length} pending
+            </span>
           )}
         </div>
 
-        {/* Pending Challenges */}
-        <div className="admin-card">
-          <div className="admin-card-header">
-            <div>
-              <div className="admin-card-title">Pending Challenges</div>
-              <div className="admin-card-subtitle">Challenges awaiting approval</div>
+        {pendingChallenges.length === 0 ? (
+          <div className="admin-empty">
+            <div className="admin-empty-icon">
+              <CheckCircle2 className="w-6 h-6" />
             </div>
-            {pendingChallenges.length > 0 && (
-              <span className="admin-badge coral">
-                <span className="admin-badge-dot" />
-                {pendingChallenges.length} pending
-              </span>
-            )}
+            <div className="admin-empty-title">All caught up!</div>
+            <div className="admin-empty-text">No challenges awaiting approval</div>
           </div>
-
-          {pendingChallenges.length === 0 ? (
-            <div className="admin-empty">
-              <div className="admin-empty-icon">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div className="admin-empty-title">All caught up!</div>
-              <div className="admin-empty-text">No challenges awaiting approval</div>
-            </div>
-          ) : (
-            <div>
-              {pendingChallenges.slice(0, 5).map((challenge) => (
-                <div key={challenge.id} className="admin-action-card">
-                  <div className="admin-action-card-info">
-                    <div
-                      className="admin-action-card-avatar"
-                      style={{ background: "var(--admin-coral-glow)", color: "var(--admin-coral)" }}
-                    >
-                      <Trophy className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="admin-action-card-name">
-                        {challenge.title || "Untitled Challenge"}
-                      </div>
-                      <div className="admin-action-card-meta">
-                        {challenge.organizations?.name || "Unknown company"} · {formatDate(challenge.created_at)}
-                      </div>
-                    </div>
+        ) : (
+          <div>
+            {pendingChallenges.slice(0, 5).map((challenge) => (
+              <div key={challenge.id} className="admin-action-card">
+                <div className="admin-action-card-info">
+                  <div
+                    className="admin-action-card-avatar"
+                    style={{ background: "var(--admin-coral-glow)", color: "var(--admin-coral)" }}
+                  >
+                    <Trophy className="w-4 h-4" />
                   </div>
-                  <div className="admin-action-card-actions">
-                    <Link href={`/admin/challenges/${challenge.id}`}>
-                      <button className="admin-btn admin-btn-coral admin-btn-sm">
-                        Review
-                      </button>
-                    </Link>
+                  <div>
+                    <div className="admin-action-card-name">
+                      {challenge.title || "Untitled Challenge"}
+                    </div>
+                    <div className="admin-action-card-meta">
+                      {challenge.organizations?.name || "Unknown company"} · {formatDate(challenge.created_at)}
+                    </div>
                   </div>
                 </div>
-              ))}
-              {pendingChallenges.length > 5 && (
-                <div className="p-4 text-center">
-                  <Link href="/admin/challenges" className="admin-btn admin-btn-outline admin-btn-sm">
-                    View all {pendingChallenges.length} pending
-                    <ArrowRight className="w-3.5 h-3.5" />
+                <div className="admin-action-card-actions">
+                  <Link href={`/admin/challenges/${challenge.id}`}>
+                    <button className="admin-btn admin-btn-coral admin-btn-sm">
+                      Review
+                    </button>
                   </Link>
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+              </div>
+            ))}
+            {pendingChallenges.length > 5 && (
+              <div className="p-4 text-center">
+                <Link href="/admin/challenges" className="admin-btn admin-btn-outline admin-btn-sm">
+                  View all {pendingChallenges.length} pending
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Pending Challenge Edits — full width row */}

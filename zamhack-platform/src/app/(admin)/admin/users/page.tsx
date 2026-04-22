@@ -4,6 +4,7 @@ import { Database } from "@/types/supabase"
 import { UserActionsCell } from "./user-actions-cell"
 import { GrantSkillButton } from "./grant-skill-button"
 import { AdjustXpButton } from "./adjust-xp-button"
+import { OrgApprovalActions } from "@/components/admin/org-approval-actions"
 import { Users, GraduationCap, Building2, ShieldCheck, Search, ClipboardList } from "lucide-react"
 import "@/app/(admin)/admin.css"
 import CreateEvaluatorButton from "./create-evaluator-button"
@@ -11,6 +12,7 @@ import CreateEvaluatorButton from "./create-evaluator-button"
 type Profile = Database["public"]["Tables"]["profiles"]["Row"] & {
   organization?: { name: string | null } | null
 }
+type Organization = Database["public"]["Tables"]["organizations"]["Row"]
 
 const getInitials = (firstName: string | null, lastName: string | null) =>
   `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase() || "?"
@@ -23,9 +25,8 @@ const PER_PAGE = 10
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; q?: string; page?: string }>
+  searchParams: Promise<{ tab?: string; q?: string; page?: string; orgStatus?: string }>
 }) {
-  // Next.js 15: searchParams must be awaited
   const params = await searchParams
 
   const supabase = await createClient()
@@ -41,7 +42,6 @@ export default async function AdminUsersPage({
 
   if (currentUserProfile?.role !== "admin") redirect("/dashboard")
 
-  // Fetch all profiles with org name + all skills for grant dialog
   const [{ data: profiles, error }, { data: allSkills }] = await Promise.all([
     supabase
       .from("profiles")
@@ -58,16 +58,39 @@ export default async function AdminUsersPage({
   const allProfiles = (profiles || []) as Profile[]
   const skillsList = (allSkills || []) as Array<{ id: string; name: string; category: string | null }>
 
+  // Always fetch pending org count for the Companies tab badge
+  const { count: pendingOrgCount } = await supabase
+    .from("organizations")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "pending")
+
   // --- Active filter values ---
   const activeTab   = params.tab || "all"
   const searchQuery = (params.q || "").toLowerCase()
+  const orgStatus   = params.orgStatus || "all"
 
-  // --- Filter ---
+  // Fetch all orgs when on Companies tab
+  let allOrgs: Organization[] = []
+  if (activeTab === "companies") {
+    const { data: orgsData } = await supabase
+      .from("organizations")
+      .select("*")
+      .order("created_at", { ascending: false })
+    allOrgs = (orgsData || []) as Organization[]
+  }
+
+  // Filter orgs (used when activeTab === "companies")
+  const filteredOrgs = allOrgs.filter((org) => {
+    const matchesStatus = orgStatus === "all" || org.status === orgStatus
+    const matchesSearch = !searchQuery || org.name?.toLowerCase().includes(searchQuery)
+    return matchesStatus && matchesSearch
+  })
+
+  // Filter profiles (used for all non-companies tabs)
   const filtered = allProfiles.filter((p) => {
     const matchesTab =
       activeTab === "all" ||
       (activeTab === "students"   && p.role === "student") ||
-      (activeTab === "companies"  && (p.role === "company_admin" || p.role === "company_member")) ||
       (activeTab === "admins"     && p.role === "admin") ||
       (activeTab === "evaluators" && p.role === "evaluator")
 
@@ -91,19 +114,25 @@ export default async function AdminUsersPage({
     evaluators: allProfiles.filter((p) => p.role === "evaluator").length,
   }
 
-  // --- Pagination ---
+  // --- Pagination for user profiles ---
   const currentPage = Math.max(1, parseInt(params.page || "1", 10))
   const totalPages  = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const safePage    = Math.min(currentPage, totalPages)
   const paginated   = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
 
+  // --- Pagination for organizations ---
+  const orgTotalPages = Math.max(1, Math.ceil(filteredOrgs.length / PER_PAGE))
+  const safeOrgPage   = Math.min(currentPage, orgTotalPages)
+  const paginatedOrgs = filteredOrgs.slice((safeOrgPage - 1) * PER_PAGE, safeOrgPage * PER_PAGE)
+
   // Build URL preserving all active params, with overrides
   const buildUrl = (overrides: Record<string, string | number | undefined>) => {
     const base: Record<string, string> = {
       tab:  activeTab,
-      page: String(safePage),
+      page: String(activeTab === "companies" ? safeOrgPage : safePage),
     }
     if (params.q) base.q = params.q
+    if (orgStatus !== "all" && activeTab === "companies") base.orgStatus = orgStatus
 
     const merged = { ...base, ...Object.fromEntries(
       Object.entries(overrides)
@@ -143,10 +172,24 @@ export default async function AdminUsersPage({
     return "gray"
   }
 
+  const getOrgStatusBadgeClass = (status: string | null) => {
+    if (status === "active")   return "green"
+    if (status === "pending")  return "yellow"
+    if (status === "rejected") return "red"
+    return "gray"
+  }
+
   const getAffiliation = (profile: Profile) => {
     if (profile.role === "student") return profile.university || "—"
     return profile.organization?.name || "—"
   }
+
+  const orgStatusOptions = [
+    { value: "all",      label: "All" },
+    { value: "pending",  label: "Pending" },
+    { value: "active",   label: "Active" },
+    { value: "rejected", label: "Rejected" },
+  ]
 
   return (
     <div className="space-y-6" data-layout="admin">
@@ -208,12 +251,20 @@ export default async function AdminUsersPage({
               return (
                 <a
                   key={tab.key}
-                  href={buildUrl({ tab: tab.key, role: "", page: 1 })}
+                  href={buildUrl({ tab: tab.key, orgStatus: "", page: 1 })}
                   className={`admin-tab ${activeTab === tab.key ? "active" : ""}`}
                 >
                   <Icon style={{ width: 14, height: 14 }} />
                   {tab.label}
                   <span className="admin-tab-count">{tab.count}</span>
+                  {tab.key === "companies" && (pendingOrgCount || 0) > 0 && (
+                    <span
+                      className="admin-badge yellow"
+                      style={{ fontSize: "0.65rem", padding: "0.1rem 0.35rem", marginLeft: "0.125rem" }}
+                    >
+                      {pendingOrgCount} pending
+                    </span>
+                  )}
                 </a>
               )
             })}
@@ -236,6 +287,9 @@ export default async function AdminUsersPage({
           >
             <input type="hidden" name="tab" value={activeTab} />
             <input type="hidden" name="page" value="1" />
+            {orgStatus !== "all" && activeTab === "companies" && (
+              <input type="hidden" name="orgStatus" value={orgStatus} />
+            )}
 
             <div className="admin-search" style={{ minWidth: 220, flex: 1, maxWidth: 320 }}>
               <Search className="admin-search-icon" />
@@ -243,7 +297,7 @@ export default async function AdminUsersPage({
                 className="admin-input"
                 name="q"
                 defaultValue={params.q || ""}
-                placeholder="Search by name, email, university..."
+                placeholder={activeTab === "companies" ? "Search by org name..." : "Search by name, email, university..."}
                 style={{ paddingLeft: "2.25rem" }}
               />
             </div>
@@ -263,13 +317,60 @@ export default async function AdminUsersPage({
           </form>
 
           <div style={{ color: "var(--admin-gray-400)", fontSize: "0.8rem", whiteSpace: "nowrap" }}>
-            {filtered.length === 0
-              ? "No users found"
-              : `${(safePage - 1) * PER_PAGE + 1}–${Math.min(safePage * PER_PAGE, filtered.length)} of ${filtered.length} users`}
+            {activeTab === "companies"
+              ? filteredOrgs.length === 0
+                ? "No organizations found"
+                : `${(safeOrgPage - 1) * PER_PAGE + 1}–${Math.min(safeOrgPage * PER_PAGE, filteredOrgs.length)} of ${filteredOrgs.length} organizations`
+              : filtered.length === 0
+                ? "No users found"
+                : `${(safePage - 1) * PER_PAGE + 1}–${Math.min(safePage * PER_PAGE, filtered.length)} of ${filtered.length} users`}
           </div>
 
           {activeTab === "evaluators" && <CreateEvaluatorButton />}
         </div>
+
+        {/* Org status filter pills — only shown on Companies tab */}
+        {activeTab === "companies" && (
+          <div style={{
+            padding: "0.75rem 1.5rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            borderBottom: "1px solid var(--admin-gray-100)",
+            flexWrap: "wrap",
+          }}>
+            <span style={{ fontSize: "0.75rem", color: "var(--admin-gray-400)", marginRight: "0.25rem" }}>
+              Status:
+            </span>
+            {orgStatusOptions.map(({ value, label }) => (
+              <a
+                key={value}
+                href={buildUrl({ orgStatus: value === "all" ? "" : value, page: 1 })}
+                className="admin-btn admin-btn-sm"
+                style={
+                  orgStatus === value
+                    ? { background: "var(--admin-coral)", color: "white" }
+                    : { background: "transparent", border: "1.5px solid var(--admin-gray-200)", color: "var(--admin-gray-600)" }
+                }
+              >
+                {label}
+                {value === "pending" && (pendingOrgCount || 0) > 0 && (
+                  <span style={{
+                    background: orgStatus === "pending" ? "rgba(255,255,255,0.25)" : "var(--admin-yellow-glow, #fef9c3)",
+                    color: orgStatus === "pending" ? "inherit" : "#854d0e",
+                    borderRadius: "9999px",
+                    padding: "0 0.35rem",
+                    fontSize: "0.7rem",
+                    marginLeft: "0.2rem",
+                    fontWeight: 700,
+                  }}>
+                    {pendingOrgCount}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
 
         {/* Active search chip */}
         {params.q && (
@@ -295,170 +396,285 @@ export default async function AdminUsersPage({
           </div>
         )}
 
-        {/* Table */}
-        {filtered.length === 0 ? (
-          <div className="admin-empty" style={{ padding: "4rem 1.5rem" }}>
-            <div className="admin-empty-icon">
-              <Users className="w-6 h-6" />
+        {/* Companies tab: show organizations table */}
+        {activeTab === "companies" ? (
+          filteredOrgs.length === 0 ? (
+            <div className="admin-empty" style={{ padding: "4rem 1.5rem" }}>
+              <div className="admin-empty-icon">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <div className="admin-empty-title">No organizations found</div>
+              <div className="admin-empty-text">
+                {params.q
+                  ? "No results match your search."
+                  : orgStatus !== "all"
+                    ? `No ${orgStatus} organizations.`
+                    : "No organizations registered yet."}
+              </div>
             </div>
-            <div className="admin-empty-title">No users found</div>
-            <div className="admin-empty-text">
-              {params.q
-                ? "No results match your search. Try a different term."
-                : "No users in this category yet."}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="admin-table-wrapper">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Role</th>
-                    <th>Affiliation</th>
-                    <th>Status</th>
-                    <th>Joined</th>
-                    {activeTab !== "admins" && <th style={{ textAlign: "right" }}>Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginated.map((profile) => {
-                    const userProfile = profile as any
-                    const initials = getInitials(profile.first_name, profile.last_name)
-                    const fullName =
-                      `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Unnamed User"
-
-                    return (
-                      <tr key={profile.id}>
+          ) : (
+            <>
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Organization</th>
+                      <th>Industry</th>
+                      <th>Status</th>
+                      <th>Registered</th>
+                      <th style={{ textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedOrgs.map((org) => (
+                      <tr key={org.id}>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                             <div className="admin-avatar">
-                              {profile.avatar_url ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={profile.avatar_url}
-                                  alt={fullName}
-                                  style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
-                                />
-                              ) : initials}
+                              {(org.name || "?")[0].toUpperCase()}
                             </div>
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: "0.875rem", color: "var(--admin-gray-800)" }}>
-                                {fullName}
-                              </div>
-                              <div style={{ fontSize: "0.75rem", color: "var(--admin-gray-400)" }}>
-                                {userProfile.email || `ID: ${profile.id.slice(0, 8)}...`}
-                              </div>
-                            </div>
+                            <span style={{ fontWeight: 600, fontSize: "0.875rem", color: "var(--admin-gray-800)" }}>
+                              {org.name || "Unnamed Organization"}
+                            </span>
                           </div>
                         </td>
-
-                        <td>
-                          <span className={`admin-badge ${getRoleBadgeClass(profile.role)}`}>
-                            {profile.role?.replace(/_/g, " ") || "student"}
-                          </span>
-                        </td>
-
                         <td style={{ fontSize: "0.85rem", color: "var(--admin-gray-600)" }}>
-                          {getAffiliation(profile)}
+                          {(org as Organization & { industry?: string | null }).industry || "—"}
                         </td>
-
                         <td>
-                          <span className={`admin-badge ${getStatusBadgeClass(userProfile.status)}`}>
+                          <span className={`admin-badge ${getOrgStatusBadgeClass(org.status)}`}>
                             <span className="admin-badge-dot" />
-                            {userProfile.status || "active"}
+                            {org.status || "unknown"}
                           </span>
                         </td>
-
                         <td style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
-                          {formatDate(profile.created_at)}
+                          {formatDate(org.created_at)}
                         </td>
+                        <td style={{ textAlign: "right" }}>
+                          {org.status === "pending" && (
+                            <OrgApprovalActions orgId={org.id} />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-                        {profile.role !== "admin" && (
-                          <td style={{ textAlign: "right" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.375rem" }}>
-                              <AdjustXpButton userId={profile.id} role={profile.role} currentXp={(profile as any).xp_points ?? 0} currentRank={(profile as any).xp_rank ?? "beginner"} />
-                              <GrantSkillButton userId={profile.id} role={profile.role} skills={skillsList} />
-                              <UserActionsCell userId={profile.id} status={userProfile.status} />
+              {orgTotalPages > 1 && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "1rem 1.5rem",
+                  borderTop: "1px solid var(--admin-gray-100)",
+                }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
+                    Page {safeOrgPage} of {orgTotalPages}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                    {safeOrgPage > 1 ? (
+                      <a href={buildUrl({ page: safeOrgPage - 1 })} className="admin-btn admin-btn-outline admin-btn-sm">← Prev</a>
+                    ) : (
+                      <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>← Prev</span>
+                    )}
+                    {Array.from({ length: orgTotalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === orgTotalPages || Math.abs(p - safeOrgPage) <= 1)
+                      .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...")
+                        acc.push(p)
+                        return acc
+                      }, [])
+                      .map((item, idx) =>
+                        item === "..." ? (
+                          <span key={`ellipsis-${idx}`} style={{ padding: "0 0.25rem", color: "var(--admin-gray-400)", fontSize: "0.8rem" }}>…</span>
+                        ) : (
+                          <a
+                            key={item}
+                            href={buildUrl({ page: item })}
+                            className="admin-btn admin-btn-sm"
+                            style={
+                              item === safeOrgPage
+                                ? { background: "var(--admin-coral)", color: "white", minWidth: 34, justifyContent: "center" }
+                                : { background: "transparent", border: "1.5px solid var(--admin-gray-200)", color: "var(--admin-gray-600)", minWidth: 34, justifyContent: "center" }
+                            }
+                          >
+                            {item}
+                          </a>
+                        )
+                      )}
+                    {safeOrgPage < orgTotalPages ? (
+                      <a href={buildUrl({ page: safeOrgPage + 1 })} className="admin-btn admin-btn-outline admin-btn-sm">Next →</a>
+                    ) : (
+                      <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>Next →</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        ) : (
+          /* All other tabs: user profile table */
+          filtered.length === 0 ? (
+            <div className="admin-empty" style={{ padding: "4rem 1.5rem" }}>
+              <div className="admin-empty-icon">
+                <Users className="w-6 h-6" />
+              </div>
+              <div className="admin-empty-title">No users found</div>
+              <div className="admin-empty-text">
+                {params.q
+                  ? "No results match your search. Try a different term."
+                  : "No users in this category yet."}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="admin-table-wrapper">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Role</th>
+                      <th>Affiliation</th>
+                      <th>Status</th>
+                      <th>Joined</th>
+                      {activeTab !== "admins" && <th style={{ textAlign: "right" }}>Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginated.map((profile) => {
+                      const userProfile = profile as any
+                      const initials = getInitials(profile.first_name, profile.last_name)
+                      const fullName =
+                        `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "Unnamed User"
+
+                      return (
+                        <tr key={profile.id}>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                              <div className="admin-avatar">
+                                {profile.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={profile.avatar_url}
+                                    alt={fullName}
+                                    style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }}
+                                  />
+                                ) : initials}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: "0.875rem", color: "var(--admin-gray-800)" }}>
+                                  {fullName}
+                                </div>
+                                <div style={{ fontSize: "0.75rem", color: "var(--admin-gray-400)" }}>
+                                  {userProfile.email || `ID: ${profile.id.slice(0, 8)}...`}
+                                </div>
+                              </div>
                             </div>
                           </td>
-                        )}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
 
-            {/* Pagination Footer */}
-            {totalPages > 1 && (
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "1rem 1.5rem",
-                borderTop: "1px solid var(--admin-gray-100)",
-              }}>
-                <span style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
-                  Page {safePage} of {totalPages}
-                </span>
+                          <td>
+                            <span className={`admin-badge ${getRoleBadgeClass(profile.role)}`}>
+                              {profile.role?.replace(/_/g, " ") || "student"}
+                            </span>
+                          </td>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-                  {/* Prev */}
-                  {safePage > 1 ? (
-                    <a href={buildUrl({ page: safePage - 1 })} className="admin-btn admin-btn-outline admin-btn-sm">
-                      ← Prev
-                    </a>
-                  ) : (
-                    <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>
-                      ← Prev
-                    </span>
-                  )}
+                          <td style={{ fontSize: "0.85rem", color: "var(--admin-gray-600)" }}>
+                            {getAffiliation(profile)}
+                          </td>
 
-                  {/* Page number pills */}
-                  {Array.from({ length: totalPages }, (_, i) => i + 1)
-                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-                    .reduce<(number | "...")[]>((acc, p, idx, arr) => {
-                      if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...")
-                      acc.push(p)
-                      return acc
-                    }, [])
-                    .map((item, idx) =>
-                      item === "..." ? (
-                        <span key={`ellipsis-${idx}`} style={{ padding: "0 0.25rem", color: "var(--admin-gray-400)", fontSize: "0.8rem" }}>
-                          …
-                        </span>
-                      ) : (
-                        <a
-                          key={item}
-                          href={buildUrl({ page: item })}
-                          className="admin-btn admin-btn-sm"
-                          style={
-                            item === safePage
-                              ? { background: "var(--admin-coral)", color: "white", minWidth: 34, justifyContent: "center" }
-                              : { background: "transparent", border: "1.5px solid var(--admin-gray-200)", color: "var(--admin-gray-600)", minWidth: 34, justifyContent: "center" }
-                          }
-                        >
-                          {item}
-                        </a>
+                          <td>
+                            <span className={`admin-badge ${getStatusBadgeClass(userProfile.status)}`}>
+                              <span className="admin-badge-dot" />
+                              {userProfile.status || "active"}
+                            </span>
+                          </td>
+
+                          <td style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
+                            {formatDate(profile.created_at)}
+                          </td>
+
+                          {profile.role !== "admin" && (
+                            <td style={{ textAlign: "right" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.375rem" }}>
+                                <AdjustXpButton userId={profile.id} role={profile.role} currentXp={(profile as any).xp_points ?? 0} currentRank={(profile as any).xp_rank ?? "beginner"} />
+                                <GrantSkillButton userId={profile.id} role={profile.role} skills={skillsList} />
+                                <UserActionsCell userId={profile.id} status={userProfile.status} />
+                              </div>
+                            </td>
+                          )}
+                        </tr>
                       )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {totalPages > 1 && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "1rem 1.5rem",
+                  borderTop: "1px solid var(--admin-gray-100)",
+                }}>
+                  <span style={{ fontSize: "0.8rem", color: "var(--admin-gray-400)" }}>
+                    Page {safePage} of {totalPages}
+                  </span>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                    {safePage > 1 ? (
+                      <a href={buildUrl({ page: safePage - 1 })} className="admin-btn admin-btn-outline admin-btn-sm">
+                        ← Prev
+                      </a>
+                    ) : (
+                      <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>
+                        ← Prev
+                      </span>
                     )}
 
-                  {/* Next */}
-                  {safePage < totalPages ? (
-                    <a href={buildUrl({ page: safePage + 1 })} className="admin-btn admin-btn-outline admin-btn-sm">
-                      Next →
-                    </a>
-                  ) : (
-                    <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>
-                      Next →
-                    </span>
-                  )}
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                      .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...")
+                        acc.push(p)
+                        return acc
+                      }, [])
+                      .map((item, idx) =>
+                        item === "..." ? (
+                          <span key={`ellipsis-${idx}`} style={{ padding: "0 0.25rem", color: "var(--admin-gray-400)", fontSize: "0.8rem" }}>
+                            …
+                          </span>
+                        ) : (
+                          <a
+                            key={item}
+                            href={buildUrl({ page: item })}
+                            className="admin-btn admin-btn-sm"
+                            style={
+                              item === safePage
+                                ? { background: "var(--admin-coral)", color: "white", minWidth: 34, justifyContent: "center" }
+                                : { background: "transparent", border: "1.5px solid var(--admin-gray-200)", color: "var(--admin-gray-600)", minWidth: 34, justifyContent: "center" }
+                            }
+                          >
+                            {item}
+                          </a>
+                        )
+                      )}
+
+                    {safePage < totalPages ? (
+                      <a href={buildUrl({ page: safePage + 1 })} className="admin-btn admin-btn-outline admin-btn-sm">
+                        Next →
+                      </a>
+                    ) : (
+                      <span className="admin-btn admin-btn-outline admin-btn-sm" style={{ opacity: 0.4, pointerEvents: "none" }}>
+                        Next →
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
+              )}
+            </>
+          )
         )}
       </div>
     </div>

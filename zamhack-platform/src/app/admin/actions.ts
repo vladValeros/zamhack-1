@@ -2,8 +2,18 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/utils/supabase/server"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { redirect } from "next/navigation"
 import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
+import type { Database } from "@/types/supabase"
+
+function createServiceClient() {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+}
 
 // ==========================================
 // ORGANIZATION ACTIONS
@@ -24,12 +34,16 @@ export async function approveOrganization(orgId: string) {
   if (profileError || !profile) return { success: false, error: "Profile not found" }
   if (profile.role !== "admin") return { success: false, error: "Unauthorized: Admin access required" }
 
-  const { error: updateError } = await supabase
+  const serviceSupabase = createServiceClient()
+  const { data: updated, error: updateError } = await serviceSupabase
     .from("organizations")
     .update({ status: "active" })
     .eq("id", orgId)
+    .select()
+    .single()
 
   if (updateError) return { success: false, error: updateError.message || "Failed to approve organization" }
+  if (!updated) return { success: false, error: "Organization not found" }
 
   await logActivity({
     log_type: 'admin',
@@ -60,12 +74,16 @@ export async function rejectOrganization(orgId: string) {
   if (profileError || !profile) return { success: false, error: "Profile not found" }
   if (profile.role !== "admin") return { success: false, error: "Unauthorized: Admin access required" }
 
-  const { error: updateError } = await supabase
+  const serviceSupabase = createServiceClient()
+  const { data: updated, error: updateError } = await serviceSupabase
     .from("organizations")
     .update({ status: "rejected" })
     .eq("id", orgId)
+    .select()
+    .single()
 
   if (updateError) return { success: false, error: updateError.message || "Failed to reject organization" }
+  if (!updated) return { success: false, error: "Organization not found" }
 
   await logActivity({
     log_type: 'admin',
