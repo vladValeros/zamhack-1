@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -13,7 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { submitEvaluation } from "@/app/challenges/grading-actions"
+import { submitEvaluation, getNextUnreviewedSubmission } from "@/app/challenges/grading-actions"
 import { Database } from "@/types/supabase"
 
 type Evaluation = Database["public"]["Tables"]["evaluations"]["Row"]
@@ -60,6 +61,7 @@ interface GradingFormProps {
   existingScores: Score[]
   initialEvaluation?: Evaluation | null
   readOnly?: boolean
+  challengeId?: string
 }
 
 // --- Simple Score Form (no rubrics defined) ---
@@ -67,11 +69,14 @@ function SimpleGradingForm({
   submissionId,
   initialEvaluation,
   readOnly: initialReadOnly,
+  challengeId,
 }: {
   submissionId: string
   initialEvaluation?: Evaluation | null
   readOnly?: boolean
+  challengeId?: string
 }) {
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [readOnly, setReadOnly] = useState(initialReadOnly ?? false)
   const isSubmittingRef = useRef(false)
@@ -103,7 +108,16 @@ function SimpleGradingForm({
 
       if (result.success) {
         toast.success(finalIsDraft ? "Draft saved successfully" : "Evaluation submitted successfully")
-        window.location.reload()
+        if (!finalIsDraft && challengeId) {
+          const { nextSubmissionId } = await getNextUnreviewedSubmission(challengeId, submissionId)
+          if (nextSubmissionId) {
+            router.push(`/evaluator/assignments/${challengeId}/review/${nextSubmissionId}`)
+          } else {
+            router.push(`/evaluator/assignments/${challengeId}`)
+          }
+        } else {
+          window.location.reload()
+        }
       } else {
         toast.error(result.error || "Failed to submit evaluation")
       }
@@ -133,9 +147,16 @@ function SimpleGradingForm({
             {initialEvaluation?.feedback || "No feedback provided."}
           </p>
         </div>
-        <Button variant="outline" onClick={() => setReadOnly(false)}>
-          Edit Submitted Review
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setReadOnly(false)}>
+            Edit Submitted Review
+          </Button>
+          {challengeId && (
+            <Button variant="ghost" asChild>
+              <a href={`/evaluator/assignments/${challengeId}`}>Skip to list</a>
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
@@ -230,7 +251,9 @@ export const GradingForm = ({
   existingScores,
   initialEvaluation,
   readOnly: initialReadOnly,
+  challengeId,
 }: GradingFormProps) => {
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [readOnly, setReadOnly] = useState(initialReadOnly ?? false)
   const isSubmittingRef = useRef(false)
@@ -279,7 +302,16 @@ export const GradingForm = ({
 
       if (result.success) {
         toast.success(finalIsDraft ? "Draft saved successfully" : "Evaluation submitted successfully")
-        window.location.reload()
+        if (!finalIsDraft && challengeId) {
+          const { nextSubmissionId } = await getNextUnreviewedSubmission(challengeId, submissionId)
+          if (nextSubmissionId) {
+            router.push(`/evaluator/assignments/${challengeId}/review/${nextSubmissionId}`)
+          } else {
+            router.push(`/evaluator/assignments/${challengeId}`)
+          }
+        } else {
+          window.location.reload()
+        }
       } else {
         toast.error(result.error || "Failed to submit evaluation")
       }
@@ -308,6 +340,7 @@ export const GradingForm = ({
               submissionId={submissionId}
               initialEvaluation={initialEvaluation}
               readOnly={readOnly}
+              challengeId={challengeId}
             />
           </div>
         ) : readOnly ? (
@@ -339,9 +372,16 @@ export const GradingForm = ({
               </p>
             </div>
 
-            <Button variant="outline" onClick={() => setReadOnly(false)}>
-              Edit Submitted Review
-            </Button>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setReadOnly(false)}>
+                Edit Submitted Review
+              </Button>
+              {challengeId && (
+                <Button variant="ghost" asChild>
+                  <a href={`/evaluator/assignments/${challengeId}`}>Skip to list</a>
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
           /* --- HAS RUBRICS: rubric-based form --- */

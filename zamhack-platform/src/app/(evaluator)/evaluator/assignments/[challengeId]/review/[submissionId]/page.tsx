@@ -214,6 +214,7 @@ export default async function EvaluatorReviewPage({
             existingScores={(myScores as any) || []}
             initialEvaluation={myEvaluation || null}
             readOnly={myEvaluation?.is_draft === false}
+            challengeId={challengeId}
           />
         </div>
       </div>

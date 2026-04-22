@@ -7,6 +7,7 @@ import { checkParticipationGate } from "@/lib/participation-gate"
 import { awardChallengeSkills } from "@/lib/award-skills"
 import { awardXp } from "@/lib/award-xp"
 import { computeRankedResults, shouldUseRankedMode, type EvaluatorScore } from "@/lib/rank-scoring"
+import { logActivity, ActivityAction, EntityType } from "@/lib/activity-log"
 
 // --- ACTION: JOIN CHALLENGE ---
 export async function joinChallenge(challengeId: string, teamId?: string, forceJoin: boolean = false) {
@@ -959,6 +960,19 @@ export async function resolveTie(params: {
       return { success: false, error: "Failed to resolve tie." }
     }
   }
+
+  await logActivity({
+    log_type: profile.role === "admin" ? "admin" : "company",
+    actor_id: user.id,
+    action: ActivityAction.TIE_RESOLVED,
+    entity_type: EntityType.CHALLENGE,
+    entity_id: params.challengeId,
+    metadata: {
+      challenge_id: params.challengeId,
+      resolutions: params.resolutions,
+      resolver_role: profile.role,
+    },
+  })
 
   // 4. Revalidate paths
   revalidatePath(`/challenges/${params.challengeId}/results`)

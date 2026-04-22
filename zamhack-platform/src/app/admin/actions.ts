@@ -395,6 +395,15 @@ export async function assignEvaluator(
 
   if (error) return { success: false, error: error.message }
 
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.EVALUATOR_ASSIGNED,
+    entity_type: EntityType.EVALUATOR,
+    entity_id: evaluatorId,
+    metadata: { challenge_id: challengeId, evaluator_id: evaluatorId, review_deadline: reviewDeadline },
+  })
+
   revalidatePath(`/admin/challenges/${challengeId}`)
   revalidatePath(`/evaluator/assignments`)
   return { success: true }
@@ -424,6 +433,15 @@ export async function removeEvaluator(
     .eq("evaluator_id", evaluatorId)
 
   if (error) return { success: false, error: error.message }
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.EVALUATOR_REMOVED,
+    entity_type: EntityType.EVALUATOR,
+    entity_id: evaluatorId,
+    metadata: { challenge_id: challengeId, evaluator_id: evaluatorId },
+  })
 
   revalidatePath(`/admin/challenges/${challengeId}`)
   revalidatePath(`/evaluator/assignments`)
@@ -497,6 +515,15 @@ export async function setChiefEvaluator(
     .eq("evaluator_id", evaluatorId) as any)
 
   if (setError) return { success: false, error: setError.message }
+
+  await logActivity({
+    log_type: 'admin',
+    actor_id: user.id,
+    action: ActivityAction.CHIEF_EVALUATOR_SET,
+    entity_type: EntityType.EVALUATOR,
+    entity_id: evaluatorId,
+    metadata: { challenge_id: challengeId, evaluator_id: evaluatorId },
+  })
 
   revalidatePath(`/admin/challenges/${challengeId}`)
   return { success: true, error: null }

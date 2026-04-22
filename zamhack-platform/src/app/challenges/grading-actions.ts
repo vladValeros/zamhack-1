@@ -138,21 +138,38 @@ export async function submitEvaluation(
 
     if (updateError) {
       evalError = { error: updateError.message || "Failed to update evaluation" }
-    } else if (existingEvaluation.is_draft === false && !isDraft) {
-      // A previously submitted evaluation was edited — log it.
-      await logActivity({
-        log_type: isEvaluator ? "admin" : "company",
-        actor_id: user.id,
-        action: ActivityAction.EVALUATION_EDITED,
-        entity_type: "submission",
-        entity_id: submissionId,
-        metadata: {
-          challenge_id: challenge.id,
-          submission_id: submissionId,
-          new_score: totalScore,
-          new_feedback: feedback,
-        },
-      })
+    } else if (!isDraft) {
+      if (existingEvaluation.is_draft === false) {
+        // A previously submitted evaluation was edited — log it.
+        await logActivity({
+          log_type: isEvaluator ? "admin" : "company",
+          actor_id: user.id,
+          action: ActivityAction.EVALUATION_EDITED,
+          entity_type: "submission",
+          entity_id: submissionId,
+          metadata: {
+            challenge_id: challenge.id,
+            submission_id: submissionId,
+            new_score: totalScore,
+            new_feedback: feedback,
+          },
+        })
+      } else {
+        // Draft promoted to final submission.
+        await logActivity({
+          log_type: isEvaluator ? "admin" : "company",
+          actor_id: user.id,
+          action: ActivityAction.EVALUATION_SUBMITTED,
+          entity_type: "submission",
+          entity_id: submissionId,
+          metadata: {
+            challenge_id: challenge.id,
+            submission_id: submissionId,
+            score: totalScore,
+            reviewer_role: profile.role,
+          },
+        })
+      }
     }
   } else {
     const { error: insertError } = await supabase
@@ -161,6 +178,21 @@ export async function submitEvaluation(
 
     if (insertError) {
       evalError = { error: insertError.message || "Failed to create evaluation" }
+    } else if (!isDraft) {
+      // First-time final submission — log it.
+      await logActivity({
+        log_type: isEvaluator ? "admin" : "company",
+        actor_id: user.id,
+        action: ActivityAction.EVALUATION_SUBMITTED,
+        entity_type: "submission",
+        entity_id: submissionId,
+        metadata: {
+          challenge_id: challenge.id,
+          submission_id: submissionId,
+          score: totalScore,
+          reviewer_role: profile.role,
+        },
+      })
     }
   }
 
@@ -282,6 +314,51 @@ export async function submitEvaluation(
   }
 
   return { success: true }
+}
+
+// ─── Next Unreviewed Submission ───────────────────────────────────────────────
+
+export async function getNextUnreviewedSubmission(
+  challengeId: string,
+  currentSubmissionId: string
+): Promise<{ nextSubmissionId: string | null }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { nextSubmissionId: null }
+
+  // 1. All participant IDs for this challenge
+  const { data: participantRows } = await supabase
+    .from("challenge_participants")
+    .select("id")
+    .eq("challenge_id", challengeId)
+
+  const participantIds = (participantRows ?? []).map((p) => p.id)
+  if (participantIds.length === 0) return { nextSubmissionId: null }
+
+  // 2. All submission IDs, ordered by submitted_at ascending
+  const { data: submissionRows } = await supabase
+    .from("submissions")
+    .select("id")
+    .in("participant_id", participantIds)
+    .order("submitted_at", { ascending: true })
+
+  const allSubIds = (submissionRows ?? []).map((s) => s.id)
+  if (allSubIds.length === 0) return { nextSubmissionId: null }
+
+  // 3. Submissions already reviewed (non-draft) by this evaluator
+  const { data: reviewedRows } = await supabase
+    .from("evaluations")
+    .select("submission_id")
+    .in("submission_id", allSubIds)
+    .eq("reviewer_id", user.id)
+    .eq("is_draft", false)
+
+  const reviewedSet = new Set((reviewedRows ?? []).map((e) => e.submission_id))
+
+  // 4. First submission not yet reviewed and not the current one
+  const next = allSubIds.find((id) => id !== currentSubmissionId && !reviewedSet.has(id))
+  return { nextSubmissionId: next ?? null }
 }
 
 // ─── Rubric Management ────────────────────────────────────────────────────────

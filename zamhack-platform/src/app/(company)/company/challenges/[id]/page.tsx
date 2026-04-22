@@ -28,6 +28,7 @@ export interface RankingBreakdownResult {
   companyScores: Map<string, number | null>  // userId → company evaluation score
   scoringMode: string
   isRankedMode: boolean
+  resolvedByNames: Record<string, string>  // profile_id → resolver display name
 }
 
 interface ParticipantWithProfile extends Participant {
@@ -183,6 +184,24 @@ async function getRankingBreakdownData(challengeId: string): Promise<RankingBrea
     }
   }
 
+  // g2. Fetch winner rows to build resolver name map
+  const { data: winnerRows } = await (supabase
+    .from("winners")
+    .select(`
+      profile_id,
+      tie_resolved_by,
+      resolver:profiles!winners_tie_resolved_by_fkey(first_name, last_name)
+    `)
+    .eq("challenge_id", challengeId) as any)
+
+  const resolvedByNames: Record<string, string> = {}
+  for (const row of (winnerRows ?? []) as any[]) {
+    if (row.tie_resolved_by && row.resolver) {
+      const name = `${row.resolver.first_name ?? ""} ${row.resolver.last_name ?? ""}`.trim()
+      if (name) resolvedByNames[row.profile_id] = name
+    }
+  }
+
   // Early return for non-ranked mode — include companyScores for simple score display
   if (!isRankedMode) {
     return {
@@ -192,6 +211,7 @@ async function getRankingBreakdownData(challengeId: string): Promise<RankingBrea
       companyScores,
       scoringMode,
       isRankedMode: false,
+      resolvedByNames,
     }
   }
 
@@ -211,6 +231,7 @@ async function getRankingBreakdownData(challengeId: string): Promise<RankingBrea
     companyScores,
     scoringMode,
     isRankedMode: true,
+    resolvedByNames,
   }
 }
 
@@ -745,6 +766,7 @@ export default async function ChallengeManagementPage({
               companyScores={Object.fromEntries(rankingData.companyScores)}
               scoringMode={rankingData.scoringMode}
               isRankedMode={rankingData.isRankedMode}
+              resolvedByNames={rankingData.resolvedByNames}
             />
           </TabsContent>
         )}

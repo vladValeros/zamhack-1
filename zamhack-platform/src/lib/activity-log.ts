@@ -17,7 +17,10 @@ export const ActivityAction = {
   EVALUATOR_REMOVED:      'evaluator.removed',
 
   // Evaluation actions
+  EVALUATION_SUBMITTED:   'evaluation.submitted',
   EVALUATION_EDITED:      'evaluation.edited',
+  CHIEF_EVALUATOR_SET:    'chief_evaluator.set',
+  TIE_RESOLVED:           'tie.resolved',
 
   // Company actions
   CHALLENGE_CREATED:      'challenge.created',

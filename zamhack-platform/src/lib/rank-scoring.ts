@@ -18,7 +18,7 @@ export interface RankedParticipant {
   companyScore: number | null // Layer 3A input (raw, not used in ranking calc itself)
   finalRank: number // 1 = best
   isTied: boolean
-  tiebreakerUsed: "none" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
+  tiebreakerUsed: "none" | "first_place_votes" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
 }
 
 export interface RankedParticipantWithBreakdown extends RankedParticipant {
@@ -125,8 +125,17 @@ export function computeRankedResults(params: {
 }): RankedParticipant[] {
   const { evaluatorScores, companyScores, chiefEvaluatorId } = params
 
-  const { rankSumMap } = computeRankSums(evaluatorScores)
+  const { rankSumMap, perEvaluatorRankMap } = computeRankSums(evaluatorScores)
   const normalizedMap = computeNormalizedScores(evaluatorScores)
+
+  const firstPlaceVoteMap = new Map<string, number>()
+  for (const [, evalRankMap] of perEvaluatorRankMap) {
+    for (const [pid, rank] of evalRankMap) {
+      if (rank === 1) {
+        firstPlaceVoteMap.set(pid, (firstPlaceVoteMap.get(pid) ?? 0) + 1)
+      }
+    }
+  }
 
   // Collect unique participant IDs
   const participantIds = [...new Set(evaluatorScores.map((s) => s.participantId))]
@@ -158,7 +167,12 @@ export function computeRankedResults(params: {
     // Layer 1: rankSum ASC
     if (a.rankSum !== b.rankSum) return a.rankSum - b.rankSum
 
-    // Layer 2: normalizedScoreAvg DESC
+    // Layer 2: first-place vote count DESC
+    const aFirst = firstPlaceVoteMap.get(a.participantId) ?? 0
+    const bFirst = firstPlaceVoteMap.get(b.participantId) ?? 0
+    if (aFirst !== bFirst) return bFirst - aFirst
+
+    // Layer 3: normalizedScoreAvg DESC
     if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return b.normalizedScoreAvg - a.normalizedScoreAvg
 
     // Layer 3A: companyScore DESC (null → -Infinity)
@@ -183,10 +197,13 @@ export function computeRankedResults(params: {
 
   // For each pair that are still tied after all layers, mark both
   // We need to track why order was resolved between each consecutive pair
-  type TiebreakerReason = "none" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
+  type TiebreakerReason = "none" | "first_place_votes" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
 
   function getTiebreakerBetween(a: RankedParticipant, b: RankedParticipant): TiebreakerReason {
     if (a.rankSum !== b.rankSum) return "none"
+    const aFirst = firstPlaceVoteMap.get(a.participantId) ?? 0
+    const bFirst = firstPlaceVoteMap.get(b.participantId) ?? 0
+    if (aFirst !== bFirst) return "first_place_votes"
     if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return "normalized_score"
     const aCompany = a.companyScore ?? -Infinity
     const bCompany = b.companyScore ?? -Infinity
@@ -263,6 +280,15 @@ export function computeRankedResultsWithBreakdown(params: {
   const { rankSumMap, perEvaluatorRankMap } = computeRankSums(evaluatorScores)
   const normalizedMap = computeNormalizedScores(evaluatorScores)
 
+  const firstPlaceVoteMap = new Map<string, number>()
+  for (const [, evalRankMap] of perEvaluatorRankMap) {
+    for (const [pid, rank] of evalRankMap) {
+      if (rank === 1) {
+        firstPlaceVoteMap.set(pid, (firstPlaceVoteMap.get(pid) ?? 0) + 1)
+      }
+    }
+  }
+
   // Build a lookup: evaluatorId → (participantId → rawScore)
   const rawScoreMap = new Map<string, Map<string, number>>()
   for (const s of evaluatorScores) {
@@ -313,6 +339,9 @@ export function computeRankedResultsWithBreakdown(params: {
   // Sort with full priority chain (identical to computeRankedResults)
   participants.sort((a, b) => {
     if (a.rankSum !== b.rankSum) return a.rankSum - b.rankSum
+    const aFirst = firstPlaceVoteMap.get(a.participantId) ?? 0
+    const bFirst = firstPlaceVoteMap.get(b.participantId) ?? 0
+    if (aFirst !== bFirst) return bFirst - aFirst
     if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return b.normalizedScoreAvg - a.normalizedScoreAvg
     const aCompany = a.companyScore ?? -Infinity
     const bCompany = b.companyScore ?? -Infinity
@@ -325,10 +354,13 @@ export function computeRankedResultsWithBreakdown(params: {
     return 0
   })
 
-  type TiebreakerReason = "none" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
+  type TiebreakerReason = "none" | "first_place_votes" | "normalized_score" | "company_score" | "chief_evaluator" | "manual"
 
   function getTiebreakerBetween(a: RankedParticipant, b: RankedParticipant): TiebreakerReason {
     if (a.rankSum !== b.rankSum) return "none"
+    const aFirst = firstPlaceVoteMap.get(a.participantId) ?? 0
+    const bFirst = firstPlaceVoteMap.get(b.participantId) ?? 0
+    if (aFirst !== bFirst) return "first_place_votes"
     if (a.normalizedScoreAvg !== b.normalizedScoreAvg) return "normalized_score"
     const aCompany = a.companyScore ?? -Infinity
     const bCompany = b.companyScore ?? -Infinity
