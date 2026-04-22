@@ -55,7 +55,7 @@ export async function createTeam(name: string) {
     .single()
 
   if (createError) {
-    return { error: createError?.message ?? "Failed to create team" }
+    return { error: createError!.message ?? "Failed to create team" }
   }
 
   const memberData: TeamMemberInsert = {
@@ -112,14 +112,14 @@ export async function joinTeam(code: string) {
   const { count } = await supabase
     .from("team_members")
     .select("*", { count: "exact", head: true })
-    .eq("team_id", team.id)
+    .eq("team_id", team!.id)
 
   if (count && count >= MAX_TEAM_SIZE) {
     return { error: "This team is full (max 4 members)" }
   }
 
   const memberData: TeamMemberInsert = {
-    team_id: team.id,
+    team_id: team!.id,
     profile_id: user!.id,
     joined_at: new Date().toISOString(),
   }
@@ -129,7 +129,7 @@ export async function joinTeam(code: string) {
     .insert(memberData)
 
   if (joinError) {
-    return { error: joinError?.message ?? "Failed to join team" }
+    return { error: joinError!.message ?? "Failed to join team" }
   }
 
   revalidatePath("/team")
