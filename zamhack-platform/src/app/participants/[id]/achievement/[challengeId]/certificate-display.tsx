@@ -14,6 +14,7 @@ interface Props {
   representativeName?: string | null
   signatureUrl?: string | null
   verifyUrl?: string | null
+  organizationLogoUrl?: string | null
 }
 
 export default function CertificateDisplay(props: Props) {
@@ -41,6 +42,7 @@ export default function CertificateDisplay(props: Props) {
             representativeName={props.representativeName}
             signatureUrl={props.signatureUrl}
             verifyUrl={props.verifyUrl}
+            organizationLogoUrl={props.organizationLogoUrl}
           />
         ) : (
           <CompletionCertificate
@@ -52,6 +54,7 @@ export default function CertificateDisplay(props: Props) {
             representativeName={props.representativeName}
             signatureUrl={props.signatureUrl}
             verifyUrl={props.verifyUrl}
+            organizationLogoUrl={props.organizationLogoUrl}
           />
         )}
       </div>

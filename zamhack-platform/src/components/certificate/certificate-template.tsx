@@ -1,6 +1,7 @@
 "use client"
 
-import { forwardRef } from "react"
+import { forwardRef, useEffect, useState } from "react"
+import QRCode from "qrcode"
 
 interface CompletionCertificateProps {
   studentName: string
@@ -11,10 +12,21 @@ interface CompletionCertificateProps {
   representativeName?: string | null
   signatureUrl?: string | null
   verifyUrl?: string | null
+  organizationLogoUrl?: string | null
 }
 
 const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificateProps>(
-  ({ studentName, challengeTitle, organizationName, completionDate, totalScore, representativeName, signatureUrl, verifyUrl }, ref) => {
+  ({ studentName, challengeTitle, organizationName, completionDate, totalScore, representativeName, signatureUrl, verifyUrl, organizationLogoUrl }, ref) => {
+    const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+
+    useEffect(() => {
+      if (!verifyUrl) return
+      const url = verifyUrl.startsWith("http") ? verifyUrl : `https://${verifyUrl}`
+      QRCode.toDataURL(url, { width: 120, margin: 1 })
+        .then(setQrDataUrl)
+        .catch(() => {})
+    }, [verifyUrl])
+
     return (
       <div
         ref={ref}
@@ -158,6 +170,14 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
 
           {/* LEFT: Company representative signature block */}
           <div style={{ minWidth: "180px" }}>
+            {organizationLogoUrl && (
+              <img
+                src={organizationLogoUrl}
+                alt="Organization logo"
+                crossOrigin="anonymous"
+                style={{ height: 36, width: "auto", objectFit: "contain", marginBottom: 4 }}
+              />
+            )}
             {signatureUrl && (
               <img
                 src={signatureUrl}
@@ -196,11 +216,18 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
             <div style={{ fontSize: "14px", color: "#2C3E50", fontWeight: "600", marginTop: "2px" }}>
               {completionDate}
             </div>
-            {verifyUrl && (
-              <div style={{ fontSize: "8px", color: "#A0B0BC", marginTop: "8px", letterSpacing: "0.02em" }}>
-                To verify, go to:
-                <br />
-                {verifyUrl}
+            {qrDataUrl && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, marginTop: "8px" }}>
+                <img
+                  src={qrDataUrl}
+                  alt="Verify QR"
+                  width={90}
+                  height={90}
+                  style={{ display: "block" }}
+                />
+                <span style={{ fontSize: 7, color: "#666", textAlign: "center" }}>
+                  Scan to verify
+                </span>
               </div>
             )}
           </div>

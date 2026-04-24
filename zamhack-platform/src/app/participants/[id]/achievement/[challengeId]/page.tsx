@@ -17,6 +17,7 @@ interface WinnerRow {
       name: string
       representative_name: string | null
       signature_url: string | null
+      logo_url: string | null
     } | null
   } | null
 }
@@ -58,7 +59,8 @@ export default async function CertificateVerifyPage({
         organization:organizations (
           name,
           representative_name,
-          signature_url
+          signature_url,
+          logo_url
         )
       )
     `)
@@ -116,6 +118,7 @@ export default async function CertificateVerifyPage({
           representativeName={org?.representative_name ?? null}
           signatureUrl={signatureUrl}
           verifyUrl={verifyUrl}
+          organizationLogoUrl={(org as any)?.logo_url ?? null}
         />
       </VerifyPageShell>
     )
@@ -125,7 +128,7 @@ export default async function CertificateVerifyPage({
   // No winner row — check if this is a completed perpetual challenge.
   const { data: challenge } = await (supabase
     .from("challenges")
-    .select("title, is_perpetual, organization:organizations(name, representative_name, signature_url)")
+    .select("title, is_perpetual, organization:organizations(name, representative_name, signature_url, logo_url)")
     .eq("id", challengeId)
     .single() as any)
 
@@ -164,6 +167,7 @@ export default async function CertificateVerifyPage({
     name: string
     representative_name: string | null
     signature_url: string | null
+    logo_url: string | null
   } | null
 
   let signatureUrl: string | null = null
@@ -207,6 +211,7 @@ export default async function CertificateVerifyPage({
         representativeName={org?.representative_name ?? null}
         signatureUrl={signatureUrl}
         verifyUrl={verifyUrl}
+        organizationLogoUrl={(org as any)?.logo_url ?? null}
       />
     </VerifyPageShell>
   )

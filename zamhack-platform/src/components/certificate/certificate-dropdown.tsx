@@ -18,6 +18,7 @@ interface Props {
   representativeName?: string | null
   signatureUrl?: string | null
   verifyUrl?: string | null
+  organizationLogoUrl?: string | null
 }
 
 type CertType = "completion" | "winner"
@@ -129,6 +130,7 @@ export default function CertificateDropdown({
   representativeName,
   signatureUrl,
   verifyUrl,
+  organizationLogoUrl,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState<CertType | null>(null)
@@ -208,6 +210,7 @@ export default function CertificateDropdown({
               representativeName={representativeName}
               signatureUrl={signatureUrl}
               verifyUrl={verifyUrl ? `${verifyUrl}?type=completion` : null}
+              organizationLogoUrl={organizationLogoUrl}
             />
           </div>
 
@@ -222,6 +225,7 @@ export default function CertificateDropdown({
                 representativeName={representativeName}
                 signatureUrl={signatureUrl}
                 verifyUrl={verifyUrl ? `${verifyUrl}?type=winner` : null}
+                organizationLogoUrl={organizationLogoUrl}
               />
             </div>
           )}

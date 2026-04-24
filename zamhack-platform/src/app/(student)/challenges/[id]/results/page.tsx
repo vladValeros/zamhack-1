@@ -46,7 +46,7 @@ export default async function ChallengeResultsPage({
   // 1. Fetch Challenge Status
   const { data: challenge } = await supabase
     .from("challenges")
-    .select("title, status, organization:organizations(name, representative_name, signature_url)")
+    .select("title, status, organization:organizations(name, representative_name, signature_url, logo_url)")
     .eq("id", id)
     .single()
 
@@ -141,6 +141,7 @@ export default async function ChallengeResultsPage({
     name: string
     representative_name?: string | null
     signature_url?: string | null
+    logo_url?: string | null
   } | null
   const orgName = orgData?.name ?? "ZamHack"
   const representativeName = orgData?.representative_name ?? null
@@ -248,6 +249,7 @@ export default async function ChallengeResultsPage({
               representativeName={representativeName}
               signatureUrl={signatureUrl}
               verifyUrl={verifyUrl}
+              organizationLogoUrl={(orgData as any)?.logo_url ?? null}
             />
           )}
         </div>

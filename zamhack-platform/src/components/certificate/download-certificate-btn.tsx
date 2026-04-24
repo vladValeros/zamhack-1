@@ -19,6 +19,7 @@ type CompletionProps = {
   representativeName?: string | null
   signatureUrl?: string | null
   verifyUrl?: string | null
+  organizationLogoUrl?: string | null
 }
 
 type WinnerProps = {
@@ -29,6 +30,10 @@ type WinnerProps = {
   rank: 1 | 2 | 3
   score?: number | null
   awardDate: string
+  representativeName?: string | null
+  signatureUrl?: string | null
+  verifyUrl?: string | null
+  organizationLogoUrl?: string | null
 }
 
 type Props = CompletionProps | WinnerProps
@@ -151,6 +156,7 @@ export default function DownloadCertificateButton(props: Props) {
                   representativeName={props.representativeName}
                   signatureUrl={props.signatureUrl}
                   verifyUrl={props.verifyUrl}
+                  organizationLogoUrl={props.organizationLogoUrl}
                 />
               ) : (
                 <WinnerCertificate
@@ -160,6 +166,10 @@ export default function DownloadCertificateButton(props: Props) {
                   rank={props.rank}
                   score={props.score}
                   awardDate={props.awardDate}
+                  representativeName={props.representativeName}
+                  signatureUrl={props.signatureUrl}
+                  verifyUrl={props.verifyUrl}
+                  organizationLogoUrl={props.organizationLogoUrl}
                 />
               )}
             </div>
