@@ -22,7 +22,7 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
     useEffect(() => {
       if (!verifyUrl) return
       const url = verifyUrl.startsWith("http") ? verifyUrl : `https://${verifyUrl}`
-      QRCode.toDataURL(url, { width: 120, margin: 1 })
+      QRCode.toDataURL(url, { width: 180, margin: 1 })
         .then(setQrDataUrl)
         .catch(() => {})
     }, [verifyUrl])
@@ -46,6 +46,48 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
         {/* Top bar */}
         <div style={{ flexShrink: 0, height: "8px",
           background: "linear-gradient(90deg, #2C3E50 0%, #FF9B87 60%, #E8836F 100%)" }} />
+
+        {/* ── HEADER ROW ── */}
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "24px 36px 0 36px",
+          width: "100%",
+          flexShrink: 0,
+        }}>
+          {/* LEFT: Company logo */}
+          {organizationLogoUrl ? (
+            <img
+              src={organizationLogoUrl}
+              alt="Organization logo"
+              crossOrigin="anonymous"
+              style={{ height: 88, maxWidth: 180, objectFit: "contain" }}
+            />
+          ) : (
+            <div style={{ width: 180, height: 88 }} />
+          )}
+
+          {/* CENTER: Certificate title */}
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: 46, fontWeight: 700,
+              color: "#E8896A", letterSpacing: 2 }}>
+              Certificate
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: 5,
+              color: "#2C3E50", textTransform: "uppercase" }}>
+              of Completion
+            </div>
+          </div>
+
+          {/* RIGHT: ZamHack logo */}
+          <img
+            src="https://zamhack.com/assets/zamhack-logo.svg"
+            alt="ZamHack logo"
+            crossOrigin="anonymous"
+            style={{ height: 72, maxWidth: 160, objectFit: "contain" }}
+          />
+        </div>
 
         {/* Left accent — absolutely positioned so it doesn't affect flex */}
         <div style={{ position: "absolute", top: 0, left: 0, width: "6px", height: "100%",
@@ -72,44 +114,22 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
           justifyContent: "center",
           paddingLeft: "60px",
           paddingRight: "60px",
+          paddingTop: "10px",
           paddingBottom: "100px", // offset for footer height so content looks visually centered
           gap: "0px",
         }}>
-
-          {/* Logo */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center",
-            gap: "10px", marginBottom: "6px" }}>
-            <div style={{ width: "36px", height: "36px", borderRadius: "10px", flexShrink: 0,
-              background: "linear-gradient(135deg, #FF9B87 0%, #E8836F 100%)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 12px rgba(255,155,135,0.40)" }}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" fill="white" />
-              </svg>
-            </div>
-            <span style={{ fontSize: "22px", fontWeight: "700", color: "#2C3E50", letterSpacing: "0.05em" }}>
-              ZamHack
-            </span>
-          </div>
-
-          {/* Label */}
-          <div style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.25em",
-            color: "#FF9B87", textTransform: "uppercase", marginBottom: "4px",
-            textAlign: "center" }}>
-            Certificate of Completion
-          </div>
 
           {/* Divider */}
           <div style={{ width: "80px", height: "2px", marginBottom: "18px",
             background: "linear-gradient(90deg, transparent, #FF9B87, transparent)" }} />
 
-          <p style={{ fontSize: "13px", color: "#7A909E", fontStyle: "italic",
+          <p style={{ fontSize: "18px", color: "#7A909E", fontStyle: "italic",
             margin: "0 0 6px 0", textAlign: "center" }}>
             This is to certify that
           </p>
 
           {/* Student name */}
-          <div style={{ fontSize: "48px", fontWeight: "700", color: "#2C3E50",
+          <div style={{ fontSize: "56px", fontWeight: "700", color: "#2C3E50",
             letterSpacing: "-0.02em", textAlign: "center", lineHeight: "1.15",
             fontFamily: "Georgia, serif", margin: "0" }}>
             {studentName}
@@ -120,7 +140,7 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
             marginTop: "8px", marginBottom: "18px",
             background: "linear-gradient(90deg, transparent, #FF9B87 40%, #E8836F 60%, transparent)" }} />
 
-          <p style={{ fontSize: "13px", color: "#7A909E", fontStyle: "italic",
+          <p style={{ fontSize: "16px", color: "#7A909E", fontStyle: "italic",
             margin: "0 0 10px 0", textAlign: "center" }}>
             has successfully completed all milestones in
           </p>
@@ -131,7 +151,7 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
             background: "linear-gradient(135deg, rgba(44,62,80,0.06) 0%, rgba(255,155,135,0.10) 100%)",
             border: "1px solid rgba(255,155,135,0.30)",
             borderRadius: "10px",
-            padding: "12px 36px",
+            padding: "12px 32px",
             marginBottom: "8px",
             maxWidth: "800px",
             textAlign: "center",
@@ -142,7 +162,7 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
             </div>
           </div>
 
-          <p style={{ fontSize: "13px", color: "#4A6072", margin: "0", textAlign: "center" }}>
+          <p style={{ fontSize: "16px", color: "#4A6072", margin: "0", textAlign: "center" }}>
             presented by{" "}
             <span style={{ fontWeight: "700", color: "#2C3E50" }}>{organizationName}</span>
           </p>
@@ -154,7 +174,7 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
               <svg width="14" height="14" viewBox="0 0 20 20" fill="#F59E0B">
                 <path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" />
               </svg>
-              <span style={{ fontSize: "13px", color: "#92400E", fontWeight: "600" }}>
+              <span style={{ fontSize: "16px", color: "#92400E", fontWeight: "600" }}>
                 Total Score: {totalScore} pts
               </span>
             </div>
@@ -163,43 +183,35 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
 
         {/* ── FOOTER: pinned to bottom absolutely ── */}
         <div style={{
-          position: "absolute", left: "54px", right: "48px", bottom: "14px", height: "82px",
+          position: "absolute", left: "54px", right: "48px", bottom: "24px", height: "110px",
           display: "flex", justifyContent: "space-between", alignItems: "flex-end",
-          borderTop: "1px solid rgba(44,62,80,0.12)", paddingTop: "14px",
+          borderTop: "1px solid rgba(44,62,80,0.12)", paddingTop: "18px",
         }}>
 
           {/* LEFT: Company representative signature block */}
           <div style={{ minWidth: "180px" }}>
-            {organizationLogoUrl && (
-              <img
-                src={organizationLogoUrl}
-                alt="Organization logo"
-                crossOrigin="anonymous"
-                style={{ height: 36, width: "auto", objectFit: "contain", marginBottom: 4 }}
-              />
-            )}
             {signatureUrl && (
               <img
                 src={signatureUrl}
-                alt="Signature"
+                alt="Representative signature"
                 crossOrigin="anonymous"
                 style={{
-                  height: "36px", maxWidth: "160px", objectFit: "contain",
+                  height: "52px", maxWidth: "200px", objectFit: "contain",
                   marginBottom: "2px", display: "block",
                 }}
               />
             )}
             <div style={{ width: "160px", height: "1px", background: "#2C3E50", marginBottom: "4px" }} />
-            <div style={{ fontSize: "13px", fontWeight: "700", color: "#2C3E50" }}>
+            <div style={{ fontSize: "17px", fontWeight: "700", color: "#2C3E50" }}>
               {representativeName ?? "ZamHack Platform"}
             </div>
             {representativeName && (
-              <div style={{ fontSize: "10px", color: "#7A909E", marginTop: "1px" }}>
+              <div style={{ fontSize: "14px", color: "#7A909E", marginTop: "1px" }}>
                 {organizationName}
               </div>
             )}
             {representativeName && (
-              <div style={{ fontSize: "9px", color: "#7A909E", textTransform: "uppercase",
+              <div style={{ fontSize: "14px", color: "#7A909E", textTransform: "uppercase",
                 letterSpacing: "0.08em", marginTop: "1px" }}>
                 Representative
               </div>
@@ -210,22 +222,22 @@ const CompletionCertificate = forwardRef<HTMLDivElement, CompletionCertificatePr
           <div />
 
           {/* RIGHT: Date issued + verification URL */}
-          <div style={{ textAlign: "right", minWidth: "180px" }}>
-            <div style={{ fontSize: "10px", color: "#7A909E", letterSpacing: "0.08em",
-              textTransform: "uppercase" }}>Date Issued</div>
-            <div style={{ fontSize: "14px", color: "#2C3E50", fontWeight: "600", marginTop: "2px" }}>
+          <div style={{ textAlign: "center", minWidth: "180px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ fontSize: "13px", color: "#7A909E", letterSpacing: 2,
+              fontWeight: "600", textTransform: "uppercase" }}>Date Issued</div>
+            <div style={{ fontSize: "20px", color: "#2C3E50", fontWeight: "700", marginTop: "2px" }}>
               {completionDate}
             </div>
             {qrDataUrl && (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, marginTop: "8px" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, marginTop: "16px" }}>
                 <img
                   src={qrDataUrl}
                   alt="Verify QR"
-                  width={90}
-                  height={90}
+                  width={130}
+                  height={130}
                   style={{ display: "block" }}
                 />
-                <span style={{ fontSize: 7, color: "#666", textAlign: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: "500", color: "#666", textAlign: "center" }}>
                   Scan to verify
                 </span>
               </div>
