@@ -180,21 +180,42 @@ export const createChallenge = async (
     if (bannerFormData) {
       const bannerFile = bannerFormData.get("banner")
       if (bannerFile instanceof File && bannerFile.size > 0) {
-        const adminSupabase = getAdminSupabase()
-        const bytes = await bannerFile.arrayBuffer()
-        await adminSupabase.storage
-          .from("challenge-banners")
-          .upload(`challenge-${challengeId}/banner`, bytes, {
-            contentType: bannerFile.type,
-            upsert: true,
-          })
-        const { data: { publicUrl } } = adminSupabase.storage
-          .from("challenge-banners")
-          .getPublicUrl(`challenge-${challengeId}/banner`)
-        await adminSupabase
-          .from("challenges")
-          .update({ banner_image: publicUrl } as any)
-          .eq("id", challengeId)
+        const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"]
+        const MAX_BYTES = 4 * 1024 * 1024 // 4 MB — safe under the 5 MB body limit
+
+        if (!ALLOWED_TYPES.includes(bannerFile.type)) {
+          return { success: false, error: "Banner must be a PNG, JPG, or WebP image." }
+        }
+        if (bannerFile.size > MAX_BYTES) {
+          return { success: false, error: "Banner image must be under 4 MB. Please resize and try again." }
+        }
+
+        try {
+          const adminSupabase = getAdminSupabase()
+          const bytes = await bannerFile.arrayBuffer()
+          const { error: uploadError } = await adminSupabase.storage
+            .from("challenge-banners")
+            .upload(`challenge-${challengeId}/banner`, bytes, {
+              contentType: bannerFile.type,
+              upsert: true,
+            })
+
+          if (uploadError) {
+            console.error("[banner-upload] Storage error:", uploadError.message)
+            // Non-fatal: challenge was created, skip banner silently
+          } else {
+            const { data: { publicUrl } } = adminSupabase.storage
+              .from("challenge-banners")
+              .getPublicUrl(`challenge-${challengeId}/banner`)
+            await adminSupabase
+              .from("challenges")
+              .update({ banner_image: publicUrl } as any)
+              .eq("id", challengeId)
+          }
+        } catch (bannerErr: any) {
+          console.error("[banner-upload] Unexpected error, skipping banner:", bannerErr?.message)
+          // Challenge already created — do not rethrow
+        }
       }
     }
 

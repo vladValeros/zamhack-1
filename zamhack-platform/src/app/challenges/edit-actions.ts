@@ -63,6 +63,7 @@ export async function updateChallenge(
   data: UpdateChallengeInput,
   bannerFormData: FormData | null = null
 ): Promise<UpdateChallengeResult> {
+  try {
   const supabase = await createClient();
 
   const {
@@ -121,21 +122,40 @@ export async function updateChallenge(
     if (bannerFormData) {
       const bannerFile = bannerFormData.get("banner");
       if (bannerFile instanceof File && bannerFile.size > 0) {
-        const adminSupabase = getAdminSupabase();
-        const bytes = await bannerFile.arrayBuffer();
-        await adminSupabase.storage
-          .from("challenge-banners")
-          .upload(`challenge-${challengeId}/banner`, bytes, {
-            contentType: bannerFile.type,
-            upsert: true,
-          });
-        const { data: { publicUrl } } = adminSupabase.storage
-          .from("challenge-banners")
-          .getPublicUrl(`challenge-${challengeId}/banner`);
-        await adminSupabase
-          .from("challenges")
-          .update({ banner_image: publicUrl } as any)
-          .eq("id", challengeId);
+        const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
+        const MAX_BYTES = 4 * 1024 * 1024;
+
+        if (!ALLOWED_TYPES.includes(bannerFile.type)) {
+          throw new Error("Banner must be a PNG, JPG, or WebP image.");
+        }
+        if (bannerFile.size > MAX_BYTES) {
+          throw new Error("Banner image must be under 4 MB. Please resize and try again.");
+        }
+
+        try {
+          const adminSupabase = getAdminSupabase();
+          const bytes = await bannerFile.arrayBuffer();
+          const { error: uploadError } = await adminSupabase.storage
+            .from("challenge-banners")
+            .upload(`challenge-${challengeId}/banner`, bytes, {
+              contentType: bannerFile.type,
+              upsert: true,
+            });
+
+          if (uploadError) {
+            console.error("[banner-upload] Storage error:", uploadError.message);
+          } else {
+            const { data: { publicUrl } } = adminSupabase.storage
+              .from("challenge-banners")
+              .getPublicUrl(`challenge-${challengeId}/banner`);
+            await adminSupabase
+              .from("challenges")
+              .update({ banner_image: publicUrl } as any)
+              .eq("id", challengeId);
+          }
+        } catch (bannerErr: any) {
+          console.error("[banner-upload] Unexpected error, skipping banner:", bannerErr?.message);
+        }
       }
     }
 
@@ -238,6 +258,9 @@ export async function updateChallenge(
 
     revalidatePath(`/company/challenges/${challengeId}`);
     return { type: "pending_review", redirectTo: `/company/challenges/${challengeId}` };
+  }
+  } catch (err: any) {
+    throw new Error(err?.message ?? "Something went wrong updating the challenge")
   }
 }
 

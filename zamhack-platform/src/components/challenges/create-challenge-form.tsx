@@ -416,6 +416,22 @@ export const CreateChallengeForm = ({ organizationId }: { organizationId: string
                     onChange={(e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
+
+                      if (file.size > 4 * 1024 * 1024) {
+                        toast.error("Banner image must be under 4 MB. Please choose a smaller file.")
+                        e.target.value = ""
+                        return
+                      }
+
+                      const img = new Image()
+                      img.onload = () => {
+                        if (img.width < 1200 || img.height < 400) {
+                          toast.warning(`Banner is ${img.width}×${img.height}px. Recommended size is 1200×400px or larger.`)
+                        }
+                        URL.revokeObjectURL(img.src)
+                      }
+                      img.src = URL.createObjectURL(file)
+
                       setBannerFile(file)
                       const reader = new FileReader()
                       reader.onload = (ev) => setBannerPreview(ev.target?.result as string)
