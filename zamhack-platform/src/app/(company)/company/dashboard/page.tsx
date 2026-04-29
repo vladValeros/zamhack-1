@@ -12,6 +12,7 @@ import {
   MessageCircle,
   CalendarDays,
   CreditCard,
+  Handshake,
 } from "lucide-react"
 
 type Challenge = Database["public"]["Tables"]["challenges"]["Row"]
@@ -38,6 +39,14 @@ interface RecentSubmission {
   } | null
 }
 
+interface CollabInviteBanner {
+  id: string
+  invite_token: string | null
+  token_expires_at: string | null
+  challenge_id: string
+  challenge_title: string
+}
+
 interface DashboardData {
   organizationName: string
   activeChallenges: Challenge[]
@@ -45,6 +54,7 @@ interface DashboardData {
   totalParticipants: number
   pendingReviews: number
   recentSubmissions: RecentSubmission[]
+  collabInviteBanners: CollabInviteBanner[]
 }
 
 async function getCompanyDashboardData(): Promise<DashboardData> {
@@ -263,6 +273,31 @@ async function getCompanyDashboardData(): Promise<DashboardData> {
     }
   }
 
+  // Pending Collaboration Invites addressed to this org
+  let collabInviteBanners: CollabInviteBanner[] = []
+  const { data: pendingCollabInvites } = await supabase
+    .from("challenge_collaborators")
+    .select("id, invite_token, token_expires_at, challenge_id")
+    .eq("organization_id", profile.organization_id)
+    .eq("status", "pending_acceptance")
+
+  if (pendingCollabInvites && pendingCollabInvites.length > 0) {
+    const inviteChallengeIds = pendingCollabInvites.map((i) => i.challenge_id)
+    const { data: inviteChallenges } = await supabase
+      .from("challenges")
+      .select("id, title")
+      .in("id", inviteChallengeIds)
+
+    collabInviteBanners = pendingCollabInvites.map((invite) => ({
+      id: invite.id,
+      invite_token: invite.invite_token,
+      token_expires_at: invite.token_expires_at,
+      challenge_id: invite.challenge_id,
+      challenge_title:
+        inviteChallenges?.find((c) => c.id === invite.challenge_id)?.title ?? "a challenge",
+    }))
+  }
+
   return {
     organizationName: organization.name,
     activeChallenges: activeChallengesList,
@@ -270,6 +305,7 @@ async function getCompanyDashboardData(): Promise<DashboardData> {
     totalParticipants,
     pendingReviews,
     recentSubmissions,
+    collabInviteBanners,
   }
 }
 
@@ -317,6 +353,7 @@ export default async function CompanyDashboardPage() {
     totalParticipants,
     pendingReviews,
     recentSubmissions,
+    collabInviteBanners,
   } = await getCompanyDashboardData()
 
   const awaitingPaymentCount = activeChallenges.filter(
@@ -350,6 +387,61 @@ export default async function CompanyDashboardPage() {
           Here&apos;s a snapshot of your challenges and recent activity.
         </p>
       </div>
+
+      {/* ── Pending Collaboration Invite Banners ── */}
+      {collabInviteBanners.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {collabInviteBanners.map((invite) => (
+            <div
+              key={invite.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                padding: "1rem 1.25rem",
+                borderRadius: "0.75rem",
+                border: "1px solid rgba(234, 179, 8, 0.3)",
+                background: "rgba(234, 179, 8, 0.08)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ padding: "0.5rem", borderRadius: "9999px", background: "rgba(234, 179, 8, 0.15)" }}>
+                  <Handshake style={{ width: "1.125rem", height: "1.125rem", color: "#92400e" }} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 700, color: "#92400e", fontSize: "0.9375rem", margin: 0 }}>
+                    You&apos;ve been invited to collaborate
+                  </p>
+                  <p style={{ color: "#b45309", fontSize: "0.8125rem", margin: "0.125rem 0 0" }}>
+                    You have a pending collaboration invite for:{" "}
+                    <strong>{invite.challenge_title}</strong>
+                  </p>
+                  <p style={{ color: "#b45309", fontSize: "0.75rem", margin: "0.125rem 0 0" }}>
+                    {invite.token_expires_at
+                      ? `This invite expires on ${new Date(invite.token_expires_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`
+                      : "No expiry set"}
+                  </p>
+                </div>
+              </div>
+              {invite.invite_token ? (
+                <Link
+                  href={`/company/collaboration/accept?token=${invite.invite_token}`}
+                  className="cp-btn cp-btn-sm"
+                  style={{ background: "#d97706", color: "white", border: "none", whiteSpace: "nowrap", flexShrink: 0 }}
+                >
+                  <Handshake style={{ width: "1rem", height: "1rem" }} />
+                  View Invite
+                </Link>
+              ) : (
+                <p style={{ fontSize: "0.8125rem", color: "#b45309", flexShrink: 0 }}>
+                  The invite link is not yet available. Check back soon.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Stat Cards ── */}
       <div className="cp-grid-4">

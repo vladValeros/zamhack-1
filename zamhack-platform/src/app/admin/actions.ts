@@ -37,7 +37,12 @@ export async function approveOrganization(orgId: string) {
   const serviceSupabase = createServiceClient()
   const { data: updated, error: updateError } = await serviceSupabase
     .from("organizations")
-    .update({ status: "active" })
+    .update({
+      status: "active",
+      is_verified: true,
+      verification_status: "verified",
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", orgId)
     .select()
     .single()
@@ -56,6 +61,8 @@ export async function approveOrganization(orgId: string) {
   })
 
   revalidatePath("/admin/dashboard")
+  revalidatePath("/company/organization")
+  revalidatePath("/company/dashboard")
   return { success: true }
 }
 
