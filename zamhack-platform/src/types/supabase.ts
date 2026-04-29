@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -64,6 +64,177 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      challenge_collaboration_edits: {
+        Row: {
+          challenge_id: string
+          collaborator_org_id: string
+          created_at: string | null
+          id: string
+          owner_note: string | null
+          payload: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_by: string
+          updated_at: string | null
+        }
+        Insert: {
+          challenge_id: string
+          collaborator_org_id: string
+          created_at?: string | null
+          id?: string
+          owner_note?: string | null
+          payload: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by: string
+          updated_at?: string | null
+        }
+        Update: {
+          challenge_id?: string
+          collaborator_org_id?: string
+          created_at?: string | null
+          id?: string
+          owner_note?: string | null
+          payload?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "challenge_collaboration_edits_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaboration_edits_collaborator_org_id_fkey"
+            columns: ["collaborator_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaboration_edits_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaboration_edits_submitted_by_fkey"
+            columns: ["submitted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      challenge_collaborators: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          admin_approved_at: string | null
+          admin_approved_by: string | null
+          admin_note: string | null
+          challenge_id: string
+          created_at: string | null
+          id: string
+          invite_token: string | null
+          invited_by: string
+          organization_id: string
+          revoked_at: string | null
+          revoked_by: string | null
+          status: string
+          token_expires_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          admin_approved_at?: string | null
+          admin_approved_by?: string | null
+          admin_note?: string | null
+          challenge_id: string
+          created_at?: string | null
+          id?: string
+          invite_token?: string | null
+          invited_by: string
+          organization_id: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          admin_approved_at?: string | null
+          admin_approved_by?: string | null
+          admin_note?: string | null
+          challenge_id?: string
+          created_at?: string | null
+          id?: string
+          invite_token?: string | null
+          invited_by?: string
+          organization_id?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          status?: string
+          token_expires_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "challenge_collaborators_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaborators_admin_approved_by_fkey"
+            columns: ["admin_approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaborators_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaborators_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaborators_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "challenge_collaborators_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -249,6 +420,7 @@ export type Database = {
       }
       challenges: {
         Row: {
+          banner_image: string | null
           created_at: string | null
           created_by: string | null
           currency: string | null
@@ -273,7 +445,6 @@ export type Database = {
           participation_type: string | null
           problem_brief: string | null
           registration_deadline: string | null
-          banner_image: string | null
           rejection_feedback: string | null
           scoring_mode: string
           start_date: string | null
@@ -283,6 +454,7 @@ export type Database = {
           xp_multiplier: number | null
         }
         Insert: {
+          banner_image?: string | null
           created_at?: string | null
           created_by?: string | null
           currency?: string | null
@@ -307,7 +479,6 @@ export type Database = {
           participation_type?: string | null
           problem_brief?: string | null
           registration_deadline?: string | null
-          banner_image?: string | null
           rejection_feedback?: string | null
           scoring_mode?: string
           start_date?: string | null
@@ -317,6 +488,7 @@ export type Database = {
           xp_multiplier?: number | null
         }
         Update: {
+          banner_image?: string | null
           created_at?: string | null
           created_by?: string | null
           currency?: string | null
@@ -341,7 +513,6 @@ export type Database = {
           participation_type?: string | null
           problem_brief?: string | null
           registration_deadline?: string | null
-          banner_image?: string | null
           rejection_feedback?: string | null
           scoring_mode?: string
           start_date?: string | null
@@ -1183,31 +1354,31 @@ export type Database = {
       }
       universities: {
         Row: {
+          created_at: string
           id: string
-          name: string
           is_active: boolean
           is_suggested: boolean
-          suggested_by: string | null
-          created_at: string
+          name: string
           region: string | null
+          suggested_by: string | null
         }
         Insert: {
+          created_at?: string
           id?: string
-          name: string
           is_active?: boolean
           is_suggested?: boolean
-          suggested_by?: string | null
-          created_at?: string
+          name: string
           region?: string | null
+          suggested_by?: string | null
         }
         Update: {
+          created_at?: string
           id?: string
-          name?: string
           is_active?: boolean
           is_suggested?: boolean
-          suggested_by?: string | null
-          created_at?: string
+          name?: string
           region?: string | null
+          suggested_by?: string | null
         }
         Relationships: [
           {
