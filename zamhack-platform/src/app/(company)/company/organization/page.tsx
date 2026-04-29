@@ -154,9 +154,9 @@ export default async function OrganizationPage() {
 
               {/* Status badge */}
               <div style={{ marginTop: "0.875rem" }}>
-                <span className={`cp-badge ${(organization as any).status === "approved" || !(organization as any).status ? "active" : "pending"}`}>
+                <span className={`cp-badge ${(organization as any).status === "active" || !(organization as any).status ? "active" : "pending"}`}>
                   <span className="cp-badge-dot" />
-                  {(organization as any).status === "approved" || !(organization as any).status ? "Verified" : "Pending Approval"}
+                  {(organization as any).status === "active" || !(organization as any).status ? "Verified" : "Pending Approval"}
                 </span>
               </div>
             </div>

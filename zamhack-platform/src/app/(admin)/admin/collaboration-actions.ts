@@ -51,14 +51,15 @@ export async function adminApproveCollaboration(
 
   if (challengeError || !challenge) throw new Error("Challenge not found")
 
-  // Transition: pending_admin_review → pending_acceptance
-  // The invite_token was set when the invite was created — do NOT regenerate it here.
+  // invite_token was set at send time and is not changed here.
+  // token_expires_at is reset to now + 7 days so Company B gets a full window from approval.
   const { error: updateError } = await supabase
     .from("challenge_collaborators")
     .update({
       status: "pending_acceptance",
       admin_approved_by: user.id,
       admin_approved_at: new Date().toISOString(),
+      token_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
     .eq("id", collaboratorId)
 

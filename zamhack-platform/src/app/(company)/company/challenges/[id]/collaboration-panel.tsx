@@ -350,9 +350,55 @@ export function CollaborationPanel({
           </div>
 
           {collaboration.status === "pending_admin_review" && (
-            <p className="text-sm text-muted-foreground">
-              An admin must approve before the invite is sent to the collaborator organization.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                An admin must approve before the invite is sent to the collaborator organization.
+              </p>
+              {!showRevokeConfirm ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setShowRevokeConfirm(true)}
+                >
+                  Withdraw Invite
+                </Button>
+              ) : (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-800">
+                      This will cancel the invite before the admin has reviewed it.
+                      The admin will no longer see this request. You can send a new invite afterwards.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={isRevoking}
+                      onClick={handleRevoke}
+                    >
+                      {isRevoking ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          Withdrawing…
+                        </>
+                      ) : (
+                        "Confirm Withdrawal"
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isRevoking}
+                      onClick={() => setShowRevokeConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {collaboration.status === "pending_acceptance" && (
@@ -393,6 +439,50 @@ export function CollaborationPanel({
                   collaboratorId={collaboration.id}
                   challengeId={challengeId}
                 />
+              )}
+              {!showRevokeConfirm ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setShowRevokeConfirm(true)}
+                >
+                  Cancel Invite
+                </Button>
+              ) : (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-800">
+                      This will invalidate the invite link immediately. Company B will no longer
+                      be able to accept. You can send a new invite to a different organization afterwards.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={isRevoking}
+                      onClick={handleRevoke}
+                    >
+                      {isRevoking ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          Cancelling…
+                        </>
+                      ) : (
+                        "Confirm Cancellation"
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isRevoking}
+                      onClick={() => setShowRevokeConfirm(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           )}
