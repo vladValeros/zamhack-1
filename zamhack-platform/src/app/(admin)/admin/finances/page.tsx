@@ -2,6 +2,7 @@ import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
 import { DollarSign, Building2, Users, Clock } from "lucide-react"
 import "@/app/(admin)/admin.css"
+import { markDisbursed } from "@/app/admin/actions"
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return "—"
@@ -68,6 +69,97 @@ export default async function AdminFinancesPage() {
   const pendingCount = pendingResult.count ?? 0
   const transactions = transactionsResult.data ?? []
   const totalTransactions = transactions.length
+
+  // ── Disbursement queries ──
+  const { data: entryPayments } = await supabase
+    .from("payments")
+    .select(`
+      challenge_id,
+      amount,
+      currency,
+      challenges (
+        id,
+        title,
+        organization_id,
+        registration_deadline,
+        status,
+        organizations (
+          id,
+          name
+        )
+      )
+    `)
+    .eq("payment_type", "student_entry")
+    .eq("status", "paid")
+
+  const { data: existingPayouts } = await supabase
+    .from("payouts" as any)
+    .select("challenge_id")
+    .eq("status", "disbursed")
+
+  const disbursedChallengeIds = new Set(
+    (existingPayouts ?? []).map((p: any) => p.challenge_id)
+  )
+
+  const challengeMap = new Map<string, {
+    challengeId: string
+    challengeTitle: string
+    organizationId: string
+    organizationName: string
+    registrationDeadline: string | null
+    challengeStatus: string
+    currency: string
+    grossAmount: number
+    participantCount: number
+  }>()
+
+  for (const payment of (entryPayments ?? [])) {
+    const ch = (payment as any).challenges
+    if (!ch || !payment.challenge_id) continue
+    const existing = challengeMap.get(payment.challenge_id)
+    if (existing) {
+      existing.grossAmount += payment.amount / 100
+      existing.participantCount += 1
+    } else {
+      challengeMap.set(payment.challenge_id, {
+        challengeId: payment.challenge_id,
+        challengeTitle: ch.title ?? "Unknown",
+        organizationId: ch.organization_id ?? "",
+        organizationName: ch.organizations?.name ?? "Unknown Org",
+        registrationDeadline: ch.registration_deadline ?? null,
+        challengeStatus: ch.status ?? "",
+        currency: (payment as any).currency ?? "PHP",
+        grossAmount: payment.amount / 100,
+        participantCount: 1,
+      })
+    }
+  }
+
+  const now = new Date()
+  const pendingDisbursements = Array.from(challengeMap.values()).filter((c) => {
+    if (disbursedChallengeIds.has(c.challengeId)) return false
+    const deadlinePassed = c.registrationDeadline
+      ? new Date(c.registrationDeadline) < now
+      : false
+    const statusEligible = ["completed", "closed"].includes(c.challengeStatus)
+    return deadlinePassed || statusEligible
+  })
+
+  const { data: disbursedPayouts } = await supabase
+    .from("payouts" as any)
+    .select(`
+      id,
+      gross_amount,
+      platform_fee,
+      net_amount,
+      currency,
+      disbursed_at,
+      notes,
+      challenges ( id, title ),
+      organizations ( id, name )
+    `)
+    .eq("status", "disbursed")
+    .order("disbursed_at", { ascending: false })
 
   const stats = [
     {
@@ -221,6 +313,161 @@ export default async function AdminFinancesPage() {
                         </span>
                       </td>
                       <td>{dateDisplay}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pending Disbursements ── */}
+      <div style={{ marginTop: "2rem", marginBottom: "1rem" }}>
+        <div className="admin-page-header" style={{ marginBottom: 0 }}>
+          <h2 className="admin-page-title" style={{ fontSize: "1.25rem" }}>
+            Pending <span>Disbursements</span>
+          </h2>
+          <p className="admin-page-subtitle">
+            Challenges with collected entry fees that are eligible for payout
+            to companies. Registration period must have closed.
+          </p>
+        </div>
+      </div>
+
+      <div className="admin-card">
+        {pendingDisbursements.length === 0 ? (
+          <div className="admin-empty" style={{ padding: "3rem 1.5rem" }}>
+            <div className="admin-empty-title">No pending disbursements</div>
+            <div className="admin-empty-text">
+              Disbursements appear here when a challenge&apos;s registration
+              period has closed and student entry fees are waiting to be sent.
+            </div>
+          </div>
+        ) : (
+          <div className="cp-table-wrapper" style={{ border: "none", borderRadius: 0 }}>
+            <table className="cp-table">
+              <thead>
+                <tr>
+                  <th>Challenge</th>
+                  <th>Company</th>
+                  <th>Participants</th>
+                  <th>Gross Collected</th>
+                  <th>Platform Fee (15%)</th>
+                  <th>Net to Disburse (85%)</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingDisbursements.map((d) => (
+                  <tr key={d.challengeId}>
+                    <td style={{ fontWeight: 500 }}>{d.challengeTitle}</td>
+                    <td>{d.organizationName}</td>
+                    <td>{d.participantCount}</td>
+                    <td>{d.currency} {d.grossAmount.toFixed(2)}</td>
+                    <td style={{ color: "#6b7280" }}>
+                      {d.currency} {(d.grossAmount * 0.15).toFixed(2)}
+                    </td>
+                    <td style={{ fontWeight: 600, color: "#166534" }}>
+                      {d.currency} {(d.grossAmount * 0.85).toFixed(2)}
+                    </td>
+                    <td>
+                      <form action={markDisbursed}>
+                        <input type="hidden" name="challengeId"
+                          value={d.challengeId} />
+                        <input type="hidden" name="organizationId"
+                          value={d.organizationId} />
+                        <input type="hidden" name="grossAmount"
+                          value={d.grossAmount.toFixed(2)} />
+                        <input type="hidden" name="currency"
+                          value={d.currency} />
+                        <button
+                          type="submit"
+                          style={{
+                            background: "#166534",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "0.375rem",
+                            padding: "0.375rem 0.875rem",
+                            fontSize: "0.8rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Mark as Disbursed
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Disbursement History ── */}
+      <div style={{ marginTop: "2rem", marginBottom: "1rem" }}>
+        <h2 className="admin-page-title" style={{ fontSize: "1.25rem" }}>
+          Disbursement <span>History</span>
+        </h2>
+      </div>
+
+      <div className="admin-card">
+        {!disbursedPayouts || disbursedPayouts.length === 0 ? (
+          <div className="admin-empty" style={{ padding: "3rem 1.5rem" }}>
+            <div className="admin-empty-title">No disbursements recorded</div>
+            <div className="admin-empty-text">
+              Completed disbursements will appear here.
+            </div>
+          </div>
+        ) : (
+          <div className="cp-table-wrapper" style={{ border: "none", borderRadius: 0 }}>
+            <table className="cp-table">
+              <thead>
+                <tr>
+                  <th>Challenge</th>
+                  <th>Company</th>
+                  <th>Gross</th>
+                  <th>Fee (15%)</th>
+                  <th>Net Sent (85%)</th>
+                  <th>Disbursed On</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(disbursedPayouts as any[]).map((p) => {
+                  const ch = p.challenges as any
+                  const org = p.organizations as any
+                  return (
+                    <tr key={p.id}>
+                      <td style={{ fontWeight: 500 }}>
+                        {ch?.title ?? "—"}
+                      </td>
+                      <td>{org?.name ?? "—"}</td>
+                      <td>{p.currency} {p.gross_amount.toFixed(2)}</td>
+                      <td style={{ color: "#6b7280" }}>
+                        {p.currency} {p.platform_fee.toFixed(2)}
+                      </td>
+                      <td style={{ fontWeight: 600, color: "#166534" }}>
+                        {p.currency} {p.net_amount.toFixed(2)}
+                      </td>
+                      <td style={{
+                        color: "var(--admin-gray-500,#6b7280)",
+                        fontSize: "0.8125rem",
+                      }}>
+                        {p.disbursed_at
+                          ? new Date(p.disbursed_at).toLocaleDateString("en-PH", {
+                              year: "numeric", month: "short", day: "numeric",
+                            })
+                          : "—"}
+                      </td>
+                      <td style={{
+                        color: "var(--admin-gray-500,#6b7280)",
+                        fontSize: "0.8125rem",
+                      }}>
+                        {p.notes ?? "—"}
+                      </td>
                     </tr>
                   )
                 })}

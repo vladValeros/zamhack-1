@@ -944,3 +944,64 @@ export async function updateChallengeXpMultiplier(
   revalidatePath("/admin/challenges")
   return { success: true }
 }
+
+// ==========================================
+// DISBURSEMENT ACTIONS
+// ==========================================
+
+export async function markDisbursed(formData: FormData) {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Unauthorized")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single()
+
+  if (profile?.role !== "admin") throw new Error("Unauthorized")
+
+  const challengeId = formData.get("challengeId") as string
+  const organizationId = formData.get("organizationId") as string
+  const grossAmount = parseFloat(formData.get("grossAmount") as string)
+  const currency = (formData.get("currency") as string) || "PHP"
+  const notes = (formData.get("notes") as string) || null
+
+  if (!challengeId || !organizationId || isNaN(grossAmount)) {
+    throw new Error("Invalid disbursement data")
+  }
+
+  const platformFee = parseFloat((grossAmount * 0.15).toFixed(2))
+  const netAmount = parseFloat((grossAmount * 0.85).toFixed(2))
+
+  const { data: existing } = await supabase
+    .from("payouts" as any)
+    .select("id")
+    .eq("challenge_id", challengeId)
+    .eq("status", "disbursed")
+    .maybeSingle()
+
+  if (existing) throw new Error("Already disbursed for this challenge")
+
+  const { error: insertError } = await supabase
+    .from("payouts" as any)
+    .insert({
+      challenge_id: challengeId,
+      organization_id: organizationId,
+      gross_amount: grossAmount,
+      platform_fee: platformFee,
+      net_amount: netAmount,
+      currency: currency,
+      status: "disbursed",
+      notes: notes,
+      disbursed_at: new Date().toISOString(),
+      disbursed_by: user.id,
+    })
+
+  if (insertError) throw new Error("Failed to record disbursement")
+
+  revalidatePath("/admin/finances")
+  return
+}
